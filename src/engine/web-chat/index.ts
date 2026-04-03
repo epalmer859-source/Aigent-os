@@ -9,9 +9,8 @@
 //
 // Production Prisma patterns:
 //   const biz = await db.businesses.findUnique({ where: { id: businessId } });
-//   const session = await db.web_chat_sessions.findUnique({ where: { id: sessionToken } });
+//   const session = await db.web_chat_sessions.findUnique({ where: { session_token: sessionToken } });
 //   await db.web_chat_sessions.create({ data: { ... } });
-//   await db.web_chat_sessions.update({ where: { id }, data: { message_count: { increment: 1 } } });
 // ============================================================
 
 import { z } from "zod";
@@ -55,6 +54,10 @@ interface BusinessRecord {
 const _sessions = new Map<string, SessionRecord>();
 const _businesses = new Map<string, BusinessRecord>();
 
+// ── Production rate limit counts (no message_count column in DB) ──
+
+const _prodRateLimitCounts = new Map<string, number>();
+
 // ── Injectable inbound handler ────────────────────────────────
 
 const _defaultHandler: WebChatInboundHandlerFn = async () => ({
@@ -90,8 +93,19 @@ export async function handleWebChatMessage(
   const { businessId, content, sessionToken } = parsed.data;
 
   // 2. Validate business
-  // Production: db.businesses.findUnique({ where: { id: businessId } })
-  const business = _businesses.get(businessId);
+  let business: BusinessRecord | null | undefined;
+  if (process.env.NODE_ENV === "test") {
+    business = _businesses.get(businessId);
+  } else {
+    const { db } = await import("~/server/db");
+    const dbBusiness = await db.businesses.findUnique({
+      where: { id: businessId },
+      select: { id: true, deleted_at: true },
+    });
+    if (dbBusiness) {
+      business = { id: dbBusiness.id, deletedAt: dbBusiness.deleted_at };
+    }
+  }
   if (!business || business.deletedAt !== null) {
     return { success: false, sessionToken: "", error: "business_not_found" };
   }
@@ -105,31 +119,74 @@ export async function handleWebChatMessage(
     const expiresAt = new Date(
       now.getTime() + SESSION_DURATION_HOURS * 60 * 60 * 1000,
     );
-    session = {
-      id: _genId(),
-      businessId,
-      conversationId: null,
-      customerId: null,
-      messageCount: 0,
-      createdAt: now,
-      expiresAt,
-    };
-    // Production: db.web_chat_sessions.create({ data: { ... } })
-    _sessions.set(session.id, session);
+
+    if (process.env.NODE_ENV !== "test") {
+      // In production, generate a UUID token; the session record will be
+      // inserted after we have a conversationId (required field in DB).
+      const generatedToken = crypto.randomUUID();
+      // Use an in-request object; DB insert happens after inbound handler
+      session = {
+        id: generatedToken,
+        businessId,
+        conversationId: null,
+        customerId: null,
+        messageCount: 0,
+        createdAt: now,
+        expiresAt,
+      };
+      // Track rate limit count in prod map
+      _prodRateLimitCounts.set(generatedToken, 0);
+    } else {
+      session = {
+        id: _genId(),
+        businessId,
+        conversationId: null,
+        customerId: null,
+        messageCount: 0,
+        createdAt: now,
+        expiresAt,
+      };
+      _sessions.set(session.id, session);
+    }
   } else {
     // Resume existing session
-    // Production: db.web_chat_sessions.findUnique({ where: { id: sessionToken } })
-    const existing = _sessions.get(sessionToken);
-    if (!existing) {
-      return { success: false, sessionToken: "", error: "session_expired" };
+    if (process.env.NODE_ENV === "test") {
+      const existing = _sessions.get(sessionToken);
+      if (!existing) {
+        return { success: false, sessionToken: "", error: "session_expired" };
+      }
+      if (existing.expiresAt <= new Date()) {
+        return { success: false, sessionToken: "", error: "session_expired" };
+      }
+      if (existing.businessId !== businessId) {
+        return { success: false, sessionToken: "", error: "session_mismatch" };
+      }
+      session = existing;
+    } else {
+      const { db } = await import("~/server/db");
+      const dbSession = await db.web_chat_sessions.findUnique({
+        where: { session_token: sessionToken },
+      });
+      if (!dbSession) {
+        return { success: false, sessionToken: "", error: "session_expired" };
+      }
+      if (dbSession.expires_at <= new Date()) {
+        return { success: false, sessionToken: "", error: "session_expired" };
+      }
+      if (dbSession.business_id !== businessId) {
+        return { success: false, sessionToken: "", error: "session_mismatch" };
+      }
+      const currentCount = _prodRateLimitCounts.get(sessionToken) ?? 0;
+      session = {
+        id: sessionToken,
+        businessId: dbSession.business_id,
+        conversationId: dbSession.conversation_id,
+        customerId: null,
+        messageCount: currentCount,
+        createdAt: dbSession.created_at,
+        expiresAt: dbSession.expires_at,
+      };
     }
-    if (existing.expiresAt <= new Date()) {
-      return { success: false, sessionToken: "", error: "session_expired" };
-    }
-    if (existing.businessId !== businessId) {
-      return { success: false, sessionToken: "", error: "session_mismatch" };
-    }
-    session = existing;
   }
 
   // 4. Rate limit check
@@ -138,8 +195,10 @@ export async function handleWebChatMessage(
   }
 
   // 5. Increment message count
-  // Production: db.web_chat_sessions.update({ where: { id }, data: { message_count: { increment: 1 } } })
   session.messageCount++;
+  if (process.env.NODE_ENV !== "test") {
+    _prodRateLimitCounts.set(session.id, session.messageCount);
+  }
 
   // 6. Hand off to inbound handler
   const result = await _inboundHandler({
@@ -153,6 +212,9 @@ export async function handleWebChatMessage(
   if (!result.success) {
     // Roll back count increment on handler failure
     session.messageCount--;
+    if (process.env.NODE_ENV !== "test") {
+      _prodRateLimitCounts.set(session.id, session.messageCount);
+    }
     return {
       success: false,
       sessionToken: session.id,
@@ -162,8 +224,19 @@ export async function handleWebChatMessage(
 
   // 7. Update session with resolved IDs (first message)
   if (!session.conversationId && result.conversationId) {
-    // Production: db.web_chat_sessions.update({ where: { id }, data: { conversation_id, customer_id } })
     session.conversationId = result.conversationId;
+    if (process.env.NODE_ENV !== "test") {
+      // Now we have a conversationId — insert the DB record
+      const { db } = await import("~/server/db");
+      await db.web_chat_sessions.create({
+        data: {
+          business_id: businessId,
+          conversation_id: result.conversationId,
+          session_token: session.id,
+          expires_at: session.expiresAt,
+        },
+      });
+    }
   }
   if (!session.customerId && result.customerId) {
     session.customerId = result.customerId;

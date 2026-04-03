@@ -172,6 +172,10 @@ export async function transitionState(
     throw new Error(`Unknown conversation state: "${String(toState)}"`);
   }
 
+  if (process.env.NODE_ENV !== "test") {
+    return _transitionStateFromDb(conversationId, toState, actorId, actorType, metadata);
+  }
+
   const now = new Date();
   const isNew = !_store.has(conversationId);
 
@@ -231,11 +235,6 @@ export async function transitionState(
     newPriorState = fromState;
   }
 
-  // Production: await db.$transaction([
-  //   db.conversations.update({ where: { id: conversationId }, data: { primary_state: toState, current_owner: newOwner, prior_state: newPriorState, last_state_change_at: now, updated_at: now } }),
-  //   db.outbound_queue.updateMany({ where: { conversation_id: conversationId, status: { in: ['pending','deferred'] } }, data: { status: 'canceled' } }),
-  //   db.event_log.create({ data: { business_id: conv.business_id, conversation_id: conversationId, event_code: 'state_changed', event_family: 'state_machine', source_actor: actorId, metadata: { from_state: fromState, to_state: toState, reason: metadata?.reason } } }),
-  // ])
   conv.primary_state = toState;
   conv.current_owner = newOwner;
   conv.prior_state = newPriorState;
@@ -272,6 +271,10 @@ export async function enableTakeover(
   actorId: string,
   timerSeconds?: number,
 ): Promise<TakeoverResult> {
+  if (process.env.NODE_ENV !== "test") {
+    return _enableTakeoverFromDb(conversationId, actorId, timerSeconds);
+  }
+
   const now = new Date();
 
   // Get or create (fresh conversations seed at new_lead before takeover).
@@ -296,11 +299,6 @@ export async function enableTakeover(
     conv.prior_state = previousState;
   }
 
-  // Production: await db.$transaction([
-  //   db.conversations.update({ where: { id: conversationId }, data: { primary_state: 'human_takeover_active', current_owner: 'human_takeover', prior_state: newPriorState, human_takeover_enabled_at: now, human_takeover_expires_at: expiresAt, human_takeover_timer_seconds: actualTimerSeconds, last_state_change_at: now, updated_at: now } }),
-  //   db.outbound_queue.updateMany({ where: { conversation_id: conversationId, status: { in: ['pending','deferred'] } }, data: { status: 'canceled' } }),
-  //   db.event_log.create({ data: { event_code: 'human_takeover_enabled', ... } }),
-  // ])
   conv.primary_state = "human_takeover_active";
   conv.current_owner = "human_takeover";
   conv.human_takeover_enabled_at = now;
@@ -334,6 +332,10 @@ export async function disableTakeover(
   conversationId: string,
   actorId: string,
 ): Promise<TakeoverResult> {
+  if (process.env.NODE_ENV !== "test") {
+    return _disableTakeoverFromDb(conversationId, actorId);
+  }
+
   const now = new Date();
   const conv = _store.get(conversationId);
 
@@ -353,10 +355,6 @@ export async function disableTakeover(
   const restoreState = _resolveRestoreState(conv.prior_state);
   const newOwner = STATE_OWNER_MAP[restoreState];
 
-  // Production: await db.$transaction([
-  //   db.conversations.update({ where: { id: conversationId }, data: { primary_state: restoreState, current_owner: newOwner, prior_state: null, human_takeover_disabled_at: now, human_takeover_expires_at: null, last_state_change_at: now, updated_at: now } }),
-  //   db.event_log.create({ data: { event_code: 'human_takeover_disabled', ... } }),
-  // ])
   // NOTE: old outbound_queue rows are NOT resurrected — fresh start only.
   conv.primary_state = restoreState;
   conv.current_owner = newOwner;
@@ -400,6 +398,10 @@ export async function restoreFromOverride(
   conversationId: string,
   actorId: string,
 ): Promise<TransitionResult> {
+  if (process.env.NODE_ENV !== "test") {
+    return _restoreFromOverrideFromDb(conversationId, actorId);
+  }
+
   const now = new Date();
   const conv = _store.get(conversationId);
 
@@ -422,16 +424,296 @@ export async function restoreFromOverride(
   const restoreState = _resolveRestoreState(conv.prior_state);
   const newOwner = STATE_OWNER_MAP[restoreState];
 
-  // Production: await db.$transaction([
-  //   db.conversations.update({ where: { id: conversationId }, data: { primary_state: restoreState, current_owner: newOwner, prior_state: null, last_state_change_at: now, updated_at: now } }),
-  //   db.event_log.create({ data: { event_code: 'state_changed', event_family: 'state_machine', source_actor: actorId, metadata: { from_state: previousState, to_state: restoreState, from_override: true } } }),
-  // ])
   // Do NOT create new queue rows — no silence timer resurrection.
   conv.primary_state = restoreState;
   conv.current_owner = newOwner;
   conv.prior_state = null;
   conv.last_state_change_at = now;
   conv.updated_at = now;
+
+  return {
+    success: true,
+    conversationId,
+    previousState,
+    newState: restoreState,
+    priorStateStored: null,
+    ownerChanged: newOwner !== previousOwner,
+    newOwner,
+    transitionedAt: now,
+  };
+}
+
+// ── Production Prisma implementations ────────────────────────
+
+async function _transitionStateFromDb(
+  conversationId: string,
+  toState: ConversationState,
+  actorId: string,
+  actorType: ActorType,
+  metadata?: TransitionMetadata,
+): Promise<TransitionResult> {
+  const { db } = await import("~/server/db");
+  const now = new Date();
+
+  const convRow = await db.conversations.findUnique({
+    where: { id: conversationId },
+    select: { id: true, primary_state: true, prior_state: true, current_owner: true, business_id: true },
+  });
+
+  if (!convRow) {
+    // First call — seed at toState (no validation for first state).
+    const owner = STATE_OWNER_MAP[toState];
+    await db.conversations.update({
+      where: { id: conversationId },
+      data: {
+        primary_state: toState as any,
+        current_owner: owner,
+        prior_state: null,
+        last_state_change_at: now,
+        updated_at: now,
+      },
+    });
+    return {
+      success: true,
+      conversationId,
+      previousState: toState,
+      newState: toState,
+      priorStateStored: null,
+      ownerChanged: owner !== "ai",
+      newOwner: owner,
+      transitionedAt: now,
+    };
+  }
+
+  const fromState = convRow.primary_state as ConversationState;
+  if (!_canTransition(fromState, toState)) {
+    throw new Error(`Invalid state transition: "${fromState}" → "${toState}"`);
+  }
+
+  const previousOwner = convRow.current_owner;
+  const newOwner = STATE_OWNER_MAP[toState];
+  let newPriorState: ConversationState | null = (convRow.prior_state as ConversationState | null) ?? null;
+  if (_isOverride(toState) && !_isOverride(fromState)) {
+    newPriorState = fromState;
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.conversations.update({
+      where: { id: conversationId },
+      data: {
+        primary_state: toState as any,
+        current_owner: newOwner,
+        prior_state: newPriorState,
+        last_state_change_at: now,
+        updated_at: now,
+      },
+    });
+    await tx.outbound_queue.updateMany({
+      where: { conversation_id: conversationId, status: { in: ["pending", "deferred"] as any } },
+      data: { status: "canceled" as any },
+    });
+    await tx.event_log.create({
+      data: {
+        business_id: convRow.business_id,
+        conversation_id: conversationId,
+        event_code: "state_changed",
+        event_family: "state_machine",
+        source_actor: actorType === "admin" ? "admin_team" : (actorType as any),
+        metadata: { from_state: fromState, to_state: toState, reason: metadata?.reason ?? null },
+      },
+    });
+  });
+
+  return {
+    success: true,
+    conversationId,
+    previousState: fromState,
+    newState: toState,
+    priorStateStored: newPriorState,
+    ownerChanged: newOwner !== previousOwner,
+    newOwner,
+    transitionedAt: now,
+  };
+}
+
+async function _enableTakeoverFromDb(
+  conversationId: string,
+  actorId: string,
+  timerSeconds?: number,
+): Promise<TakeoverResult> {
+  const { db } = await import("~/server/db");
+  const now = new Date();
+
+  const convRow = await db.conversations.findUnique({
+    where: { id: conversationId },
+    select: { id: true, primary_state: true, prior_state: true, business_id: true },
+  });
+
+  const previousState = (convRow?.primary_state ?? "new_lead") as ConversationState;
+  const effectiveSeconds = timerSeconds === undefined ? DEFAULT_TAKEOVER_SECONDS : timerSeconds;
+  const actualTimerSeconds = effectiveSeconds === 0 ? null : effectiveSeconds;
+  const expiresAt = actualTimerSeconds !== null
+    ? new Date(now.getTime() + actualTimerSeconds * 1000)
+    : null;
+
+  const newPriorState = !_isOverride(previousState) ? previousState : ((convRow?.prior_state ?? null) as ConversationState | null);
+
+  await db.$transaction(async (tx) => {
+    await tx.conversations.update({
+      where: { id: conversationId },
+      data: {
+        primary_state: "human_takeover_active" as any,
+        current_owner: "human_takeover",
+        prior_state: newPriorState,
+        human_takeover_enabled_at: now,
+        human_takeover_expires_at: expiresAt,
+        human_takeover_timer_seconds: actualTimerSeconds,
+        last_state_change_at: now,
+        updated_at: now,
+      },
+    });
+    await tx.outbound_queue.updateMany({
+      where: { conversation_id: conversationId, status: { in: ["pending", "deferred"] as any } },
+      data: { status: "canceled" as any },
+    });
+    if (convRow) {
+      await tx.event_log.create({
+        data: {
+          business_id: convRow.business_id,
+          conversation_id: conversationId,
+          event_code: "human_takeover_enabled",
+          event_family: "state_machine",
+          source_actor: "admin_team",
+          metadata: { actor_id: actorId, timer_seconds: actualTimerSeconds },
+        },
+      });
+    }
+  });
+
+  return {
+    success: true,
+    conversationId,
+    previousState,
+    timerSeconds: actualTimerSeconds,
+    expiresAt,
+    transitionedAt: now,
+  };
+}
+
+async function _disableTakeoverFromDb(
+  conversationId: string,
+  actorId: string,
+): Promise<TakeoverResult> {
+  const { db } = await import("~/server/db");
+  const now = new Date();
+
+  const convRow = await db.conversations.findUnique({
+    where: { id: conversationId },
+    select: { id: true, primary_state: true, prior_state: true, business_id: true },
+  });
+
+  if (!convRow || convRow.primary_state !== "human_takeover_active") {
+    return {
+      success: false,
+      conversationId,
+      previousState: (convRow?.primary_state ?? "new_lead") as ConversationState,
+      timerSeconds: null,
+      expiresAt: null,
+      transitionedAt: now,
+    };
+  }
+
+  const previousState = convRow.primary_state as ConversationState;
+  const restoreState = _resolveRestoreState((convRow.prior_state as ConversationState | null) ?? null);
+  const newOwner = STATE_OWNER_MAP[restoreState];
+
+  await db.$transaction(async (tx) => {
+    await tx.conversations.update({
+      where: { id: conversationId },
+      data: {
+        primary_state: restoreState as any,
+        current_owner: newOwner,
+        prior_state: null,
+        human_takeover_disabled_at: now,
+        human_takeover_expires_at: null,
+        last_state_change_at: now,
+        updated_at: now,
+      },
+    });
+    await tx.event_log.create({
+      data: {
+        business_id: convRow.business_id,
+        conversation_id: conversationId,
+        event_code: "human_takeover_disabled",
+        event_family: "state_machine",
+        source_actor: "admin_team",
+        metadata: { actor_id: actorId, restored_to: restoreState },
+      },
+    });
+  });
+
+  return {
+    success: true,
+    conversationId,
+    previousState,
+    timerSeconds: null,
+    expiresAt: null,
+    transitionedAt: now,
+  };
+}
+
+async function _restoreFromOverrideFromDb(
+  conversationId: string,
+  actorId: string,
+): Promise<TransitionResult> {
+  const { db } = await import("~/server/db");
+  const now = new Date();
+
+  const convRow = await db.conversations.findUnique({
+    where: { id: conversationId },
+    select: { id: true, primary_state: true, prior_state: true, current_owner: true, business_id: true },
+  });
+
+  if (!convRow || !_isOverride(convRow.primary_state as ConversationState)) {
+    return {
+      success: false,
+      conversationId,
+      previousState: (convRow?.primary_state ?? "new_lead") as ConversationState,
+      newState: (convRow?.primary_state ?? "new_lead") as ConversationState,
+      priorStateStored: null,
+      ownerChanged: false,
+      newOwner: convRow?.current_owner ?? "ai",
+      transitionedAt: now,
+    };
+  }
+
+  const previousState = convRow.primary_state as ConversationState;
+  const previousOwner = convRow.current_owner;
+  const restoreState = _resolveRestoreState((convRow.prior_state as ConversationState | null) ?? null);
+  const newOwner = STATE_OWNER_MAP[restoreState];
+
+  await db.$transaction(async (tx) => {
+    await tx.conversations.update({
+      where: { id: conversationId },
+      data: {
+        primary_state: restoreState as any,
+        current_owner: newOwner,
+        prior_state: null,
+        last_state_change_at: now,
+        updated_at: now,
+      },
+    });
+    await tx.event_log.create({
+      data: {
+        business_id: convRow.business_id,
+        conversation_id: conversationId,
+        event_code: "state_changed",
+        event_family: "state_machine",
+        source_actor: "system",
+        metadata: { from_state: previousState, to_state: restoreState, from_override: true, actor_id: actorId },
+      },
+    });
+  });
 
   return {
     success: true,
