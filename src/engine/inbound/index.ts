@@ -640,6 +640,20 @@ async function _handleInboundMessageFromDb(
     });
   }
 
+  if (aiResponseQueued) {
+    await db.outbound_queue.create({
+      data: {
+        business_id: params.businessId,
+        conversation_id: conv.id,
+        message_purpose: "ai_response",
+        audience_type: "customer",
+        channel: params.channel as any,
+        dedupe_key: `ai_response:${conv.id}:${Date.now()}`,
+        scheduled_send_at: new Date(),
+      },
+    });
+  }
+
   return {
     customerId: resolved.customer.id,
     conversationId: conv.id,

@@ -443,6 +443,28 @@ async function _processDeferredMessagesFromDb(): Promise<QueueWorkerResult> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function _processRowFromDb(row: QueueRow, db: any): Promise<keyof QueueWorkerResult | null> {
+  // ai_response rows are trigger rows — they invoke the AI generator rather than sending a message directly.
+  if (row.messagePurpose === "ai_response") {
+    const latestInbound = await db.message_log.findFirst({
+      where: { conversation_id: row.conversationId, direction: "inbound" },
+      orderBy: { created_at: "desc" },
+      select: { id: true },
+    });
+    if (latestInbound) {
+      const { generateAIResponse } = await import("../ai-response/index");
+      await generateAIResponse({
+        businessId: row.businessId,
+        conversationId: row.conversationId,
+        inboundMessageId: latestInbound.id,
+      });
+    }
+    await db.outbound_queue.update({
+      where: { id: row.id },
+      data: { status: "sent" },
+    });
+    return "sent";
+  }
+
   const now = new Date();
   const context = _buildMessageContext(row);
   const suppression = await shouldSendMessage(context);
