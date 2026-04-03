@@ -62,7 +62,7 @@ async function webChatInboundAdapter(
     const result = await handleInboundMessage({
       businessId: params.businessId,
       fromContact: params.fromContact,
-      contactType: params.contactType as "phone" | "email",
+      contactType: params.contactType as "phone" | "email" | "web_chat",
       channel: params.channel as "sms" | "voice" | "email" | "web_chat",
       content: params.content,
     });

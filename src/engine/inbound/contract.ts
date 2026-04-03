@@ -29,8 +29,8 @@ export interface InboundParams {
   businessId: string;
   /** Raw contact value — normalized internally (E.164 for phone). */
   fromContact: string;
-  /** "phone" | "email" */
-  contactType: "phone" | "email";
+  /** "phone" | "email" | "web_chat" */
+  contactType: "phone" | "email" | "web_chat";
   /** "sms" | "voice" | "email" | "web_chat" */
   channel: "sms" | "voice" | "email" | "web_chat";
   /** Message text body (may be empty string for media-only messages). */

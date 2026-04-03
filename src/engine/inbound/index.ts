@@ -36,7 +36,7 @@ import {
 const InboundParamsSchema = z.object({
   businessId: z.string().min(1),
   fromContact: z.string().min(1),
-  contactType: z.enum(["phone", "email"]),
+  contactType: z.enum(["phone", "email", "web_chat"]),
   channel: z.enum(["sms", "voice", "email", "web_chat"]),
   content: z.string(),
   mediaUrls: z.array(z.string()).optional(),

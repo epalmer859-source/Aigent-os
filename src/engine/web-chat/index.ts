@@ -206,7 +206,7 @@ export async function handleWebChatMessage(
     result = await _inboundHandler({
       businessId,
       fromContact: session.id,
-      contactType: "phone",
+      contactType: "web_chat",
       channel: WEB_CHAT_CHANNEL,
       content,
     });
@@ -215,7 +215,7 @@ export async function handleWebChatMessage(
     const inboundResult = await handleInboundMessage({
       businessId,
       fromContact: session.id,
-      contactType: "phone",
+      contactType: "web_chat",
       channel: WEB_CHAT_CHANNEL,
       content,
     });
