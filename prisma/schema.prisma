@@ -1,0 +1,909 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model appointment_change_requests {
+  id                     String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id            String                     @db.Uuid
+  conversation_id        String                     @db.Uuid
+  appointment_id         String                     @db.Uuid
+  request_type           String
+  request_status         appointment_request_status @default(draft)
+  customer_reason        String?
+  preferred_day_text     String?
+  preferred_window_text  String?
+  flexibility_notes      String?
+  suppression_active     Boolean                    @default(false)
+  suppression_started_at DateTime?                  @db.Timestamptz(6)
+  created_at             DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                   @default(now()) @db.Timestamptz(6)
+  appointments           appointments               @relation(fields: [appointment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businesses             businesses                 @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations          conversations              @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model appointments {
+  id                          String                        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                 String                        @db.Uuid
+  conversation_id             String?                       @db.Uuid
+  customer_id                 String                        @db.Uuid
+  service_type                String?
+  appointment_date            DateTime                      @db.Date
+  appointment_time            DateTime                      @db.Time(6)
+  duration_minutes            Int?
+  address                     String?
+  technician_name             String?
+  status                      appointment_status            @default(booked)
+  dispatch_status             dispatch_status?
+  access_notes                String?
+  admin_notes                 String?
+  google_calendar_event_id    String?
+  is_recurring                Boolean                       @default(false)
+  recurring_service_id        String?                       @db.Uuid
+  pending_deletion_at         DateTime?                     @db.Timestamptz(6)
+  completed_at                DateTime?                     @db.Timestamptz(6)
+  canceled_at                 DateTime?                     @db.Timestamptz(6)
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  appointment_change_requests appointment_change_requests[]
+  businesses                  businesses                    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations               conversations?                @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers                   customers                     @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  recurring_services          recurring_services?           @relation(fields: [recurring_service_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "appointments_recurring_service_fkey")
+  calendar_sync_log           calendar_sync_log[]
+  parts_inquiries             parts_inquiries[]
+  payment_management          payment_management[]
+}
+
+model approval_requests {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id     String        @db.Uuid
+  conversation_id String        @db.Uuid
+  customer_id     String?       @db.Uuid
+  request_type    String
+  status          String        @default("pending")
+  ai_summary      String?
+  admin_notes     String?
+  decided_by      String?       @db.Uuid
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  decided_at      DateTime?     @db.Timestamptz(6)
+  businesses      businesses    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations   conversations @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers       customers?    @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users           users?        @relation(fields: [decided_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model attachments {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id     String        @db.Uuid
+  conversation_id String        @db.Uuid
+  message_id      String?       @db.Uuid
+  file_url        String
+  file_type       String?
+  file_name       String?
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  businesses      businesses    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations   conversations @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  message_log     message_log?  @relation(fields: [message_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model business_config {
+  id                          String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                 String     @unique @db.Uuid
+  business_hours              Json
+  holidays_closures           Json?
+  service_area_type           String     @default("list")
+  service_area_list           Json?
+  service_area_radius_miles   Int?
+  service_area_center_address String?
+  service_area_exclusions     Json?
+  services_offered            Json
+  services_not_offered        Json?
+  owner_approval_job_types    Json?
+  appointment_types           Json?
+  same_day_booking_allowed    Boolean    @default(false)
+  secondary_contacts          Json?
+  industry_answers            Json?
+  urgent_tab_categories       Json       @default("[\"safety\", \"legal\", \"complaint\", \"scheduling\", \"stale\"]")
+  notification_defaults       Json?
+  created_at                  DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime   @default(now()) @db.Timestamptz(6)
+  businesses                  businesses @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model businesses {
+  id                                    String                              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  owner_user_id                         String                              @unique(map: "businesses_owner_user_id_unique") @db.Uuid
+  business_name                         String
+  industry                              industry
+  timezone                              String
+  join_code                             String
+  is_paused                             Boolean                             @default(false)
+  pause_message                         String?
+  default_takeover_timer_seconds        Int                                 @default(604800)
+  google_review_link                    String?
+  preferred_phone_number                String?
+  urgent_alert_phone                    String?
+  urgent_alert_email                    String?
+  ai_signoff_name                       String?
+  ai_tone_description                   String?
+  always_say                            String?
+  never_say                             String?
+  supported_languages                   String?                             @default("English")
+  multilingual_enabled                  Boolean                             @default(false)
+  ai_call_answering_enabled             Boolean                             @default(true)
+  rough_estimate_mode_enabled           Boolean                             @default(false)
+  labor_pricing_method                  String?
+  payment_management_enabled            Boolean                             @default(true)
+  cancellation_policy                   String?
+  warranty_policy                       String?
+  payment_methods                       String?
+  emergency_rules                       String?
+  customer_prep                         String?
+  common_questions                      String?
+  typical_process                       String?
+  important_details                     String?
+  customer_philosophy                   String?
+  takeover_notification_message         String?
+  quiet_hours_start                     DateTime                            @default(dbgenerated("'22:00:00'::time without time zone")) @db.Time(6)
+  quiet_hours_end                       DateTime                            @default(dbgenerated("'06:00:00'::time without time zone")) @db.Time(6)
+  quote_expiry_days                     Int                                 @default(30)
+  auto_close_days                       Int                                 @default(30)
+  onboarding_completed_at               DateTime?                           @db.Timestamptz(6)
+  deleted_at                            DateTime?                           @db.Timestamptz(6)
+  created_at                            DateTime                            @default(now()) @db.Timestamptz(6)
+  updated_at                            DateTime                            @default(now()) @db.Timestamptz(6)
+  appointment_change_requests           appointment_change_requests[]
+  appointments                          appointments[]
+  approval_requests                     approval_requests[]
+  attachments                           attachments[]
+  business_config                       business_config?
+  users_businesses_owner_user_idTousers users                               @relation("businesses_owner_user_idTousers", fields: [owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  calendar_sync_log                     calendar_sync_log[]
+  conversation_merges                   conversation_merges[]
+  conversation_tags                     conversation_tags[]
+  conversations                         conversations[]
+  customer_contacts                     customer_contacts[]
+  customers                             customers[]
+  escalations                           escalations[]
+  event_log                             event_log[]
+  message_log                           message_log[]
+  message_templates                     message_templates[]
+  notifications                         notifications[]
+  outbound_queue                        outbound_queue[]
+  parts_inquiries                       parts_inquiries[]
+  payment_management                    payment_management[]
+  post_job_closeouts                    post_job_closeouts[]
+  pricing_items                         pricing_items[]
+  prompt_log                            prompt_log[]
+  quotes                                quotes[]
+  recurring_service_change_requests     recurring_service_change_requests[]
+  recurring_services                    recurring_services[]
+  users_users_business_idTobusinesses   users[]                             @relation("users_business_idTobusinesses")
+  web_chat_sessions                     web_chat_sessions[]
+  twilio_config                         twilio_config?
+  calendar_connections                  calendar_connections?
+}
+
+model calendar_connections {
+  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  business_id        String     @unique @db.Uuid
+  google_calendar_id String
+  access_token       String
+  refresh_token      String
+  token_expires_at   DateTime   @db.Timestamptz
+  is_active          Boolean    @default(true)
+  created_at         DateTime   @default(now()) @db.Timestamptz
+  updated_at         DateTime   @default(now()) @db.Timestamptz
+
+  businesses businesses @relation(fields: [business_id], references: [id])
+}
+
+model calendar_sync_log {
+  id                       String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id              String        @db.Uuid
+  appointment_id           String?       @db.Uuid
+  google_calendar_event_id String?
+  sync_direction           String
+  sync_action              String
+  before_snapshot          Json?
+  after_snapshot           Json?
+  is_destructive           Boolean       @default(false)
+  grace_period_expires_at  DateTime?     @db.Timestamptz(6)
+  grace_period_undone      Boolean       @default(false)
+  processed_at             DateTime?     @db.Timestamptz(6)
+  created_at               DateTime      @default(now()) @db.Timestamptz(6)
+  appointments             appointments? @relation(fields: [appointment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businesses               businesses    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([appointment_id, created_at(sort: Desc)], map: "calendar_sync_log_appointment_idx")
+  @@index([business_id, created_at(sort: Desc)], map: "calendar_sync_log_business_idx")
+}
+
+model conversation_merges {
+  id                                                                         String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                                                                String        @db.Uuid
+  surviving_conversation_id                                                  String        @db.Uuid
+  absorbed_conversation_id                                                   String        @db.Uuid
+  customer_id                                                                String        @db.Uuid
+  merge_reason                                                               String
+  merge_confidence                                                           String
+  merged_at                                                                  DateTime      @default(now()) @db.Timestamptz(6)
+  conversations_conversation_merges_absorbed_conversation_idToconversations  conversations @relation("conversation_merges_absorbed_conversation_idToconversations", fields: [absorbed_conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businesses                                                                 businesses    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers                                                                  customers     @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations_conversation_merges_surviving_conversation_idToconversations conversations @relation("conversation_merges_surviving_conversation_idToconversations", fields: [surviving_conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model conversation_tags {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  conversation_id String        @db.Uuid
+  business_id     String        @db.Uuid
+  tag_code        String
+  tag_source      tag_source
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  expires_at      DateTime?     @db.Timestamptz(6)
+  is_active       Boolean       @default(true)
+  businesses      businesses    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations   conversations @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model conversations {
+  id                                                                               String                              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                                                                      String                              @db.Uuid
+  customer_id                                                                      String                              @db.Uuid
+  matter_key                                                                       String
+  primary_state                                                                    conversation_primary_state
+  prior_state                                                                      String?
+  current_owner                                                                    String                              @default("ai")
+  current_workflow_step                                                            String?
+  secondary_tags                                                                   Json?
+  contact_handle                                                                   String
+  contact_display_name                                                             String?
+  channel                                                                          String
+  collected_service_address                                                        String?
+  cached_summary                                                                   String?
+  summary_updated_at                                                               DateTime?                           @db.Timestamptz(6)
+  last_customer_message_id                                                         String?                             @db.Uuid
+  last_outbound_message_id                                                         String?                             @db.Uuid
+  last_customer_message_at                                                         DateTime?                           @db.Timestamptz(6)
+  last_ai_message_at                                                               DateTime?                           @db.Timestamptz(6)
+  last_admin_message_at                                                            DateTime?                           @db.Timestamptz(6)
+  last_state_change_at                                                             DateTime?                           @db.Timestamptz(6)
+  human_takeover_enabled_at                                                        DateTime?                           @db.Timestamptz(6)
+  human_takeover_disabled_at                                                       DateTime?                           @db.Timestamptz(6)
+  human_takeover_expires_at                                                        DateTime?                           @db.Timestamptz(6)
+  human_takeover_timer_seconds                                                     Int?
+  is_no_show                                                                       Boolean                             @default(false)
+  auto_close_at                                                                    DateTime?                           @db.Timestamptz(6)
+  is_archived                                                                      Boolean                             @default(false)
+  closed_at                                                                        DateTime?                           @db.Timestamptz(6)
+  created_at                                                                       DateTime                            @default(now()) @db.Timestamptz(6)
+  updated_at                                                                       DateTime                            @default(now()) @db.Timestamptz(6)
+  appointment_change_requests                                                      appointment_change_requests[]
+  appointments                                                                     appointments[]
+  approval_requests                                                                approval_requests[]
+  attachments                                                                      attachments[]
+  conversation_merges_conversation_merges_absorbed_conversation_idToconversations  conversation_merges[]               @relation("conversation_merges_absorbed_conversation_idToconversations")
+  conversation_merges_conversation_merges_surviving_conversation_idToconversations conversation_merges[]               @relation("conversation_merges_surviving_conversation_idToconversations")
+  conversation_tags                                                                conversation_tags[]
+  businesses                                                                       businesses                          @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers                                                                        customers                           @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  message_log_conversations_last_customer_message_idTomessage_log                  message_log?                        @relation("conversations_last_customer_message_idTomessage_log", fields: [last_customer_message_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "conversations_last_customer_message_fkey")
+  message_log_conversations_last_outbound_message_idTomessage_log                  message_log?                        @relation("conversations_last_outbound_message_idTomessage_log", fields: [last_outbound_message_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "conversations_last_outbound_message_fkey")
+  escalations                                                                      escalations[]
+  event_log                                                                        event_log[]
+  message_log_message_log_conversation_idToconversations                           message_log[]                       @relation("message_log_conversation_idToconversations")
+  outbound_queue                                                                   outbound_queue[]
+  parts_inquiries                                                                  parts_inquiries[]
+  payment_management                                                               payment_management[]
+  post_job_closeouts                                                               post_job_closeouts[]
+  prompt_log                                                                       prompt_log[]
+  quotes                                                                           quotes[]
+  recurring_service_change_requests                                                recurring_service_change_requests[]
+  web_chat_sessions                                                                web_chat_sessions[]
+
+  @@index([business_id, primary_state, current_owner, last_state_change_at], map: "conversations_dashboard_idx")
+}
+
+model customer_contacts {
+  id            String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  customer_id   String     @db.Uuid
+  business_id   String     @db.Uuid
+  contact_type  String
+  contact_value String
+  is_primary    Boolean    @default(false)
+  is_opted_out  Boolean    @default(false)
+  opted_out_at  DateTime?  @db.Timestamptz(6)
+  created_at    DateTime   @default(now()) @db.Timestamptz(6)
+  businesses    businesses @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers     customers  @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([business_id, contact_type, contact_value], map: "customer_contacts_unique")
+}
+
+model customers {
+  id                    String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id           String                @db.Uuid
+  display_name          String?
+  first_contact_channel String?
+  first_contact_at      DateTime?             @db.Timestamptz(6)
+  consent_status        consent_status        @default(implied_inbound)
+  opted_out_at          DateTime?             @db.Timestamptz(6)
+  do_not_contact        Boolean               @default(false)
+  ai_disclosure_sent_at DateTime?             @db.Timestamptz(6)
+  notes                 String?
+  created_at            DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime              @default(now()) @db.Timestamptz(6)
+  appointments          appointments[]
+  approval_requests     approval_requests[]
+  conversation_merges   conversation_merges[]
+  conversations         conversations[]
+  customer_contacts     customer_contacts[]
+  businesses            businesses            @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  escalations           escalations[]
+  payment_management    payment_management[]
+  quotes                quotes[]
+  recurring_services    recurring_services[]
+}
+
+model escalations {
+  id              String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id     String              @db.Uuid
+  conversation_id String              @db.Uuid
+  customer_id     String?             @db.Uuid
+  category        escalation_category
+  status          String              @default("open")
+  urgency         String              @default("standard")
+  ai_summary      String?
+  resolution_note String?
+  resolved_by     String?             @db.Uuid
+  created_at      DateTime            @default(now()) @db.Timestamptz(6)
+  resolved_at     DateTime?           @db.Timestamptz(6)
+  businesses      businesses          @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations   conversations       @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers       customers?          @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users           users?              @relation(fields: [resolved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model event_log {
+  id                  String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String           @db.Uuid
+  conversation_id     String           @db.Uuid
+  event_code          String
+  event_family        event_family
+  source_actor        source_actor
+  related_record_type String?
+  related_record_id   String?          @db.Uuid
+  metadata            Json?
+  created_at          DateTime         @default(now()) @db.Timestamptz(6)
+  businesses          businesses       @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations       conversations    @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  outbound_queue      outbound_queue[]
+
+  @@index([business_id, conversation_id, created_at(sort: Desc)], map: "event_log_lookup_idx")
+}
+
+model message_log {
+  id                                                                String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                                                       String               @db.Uuid
+  conversation_id                                                   String               @db.Uuid
+  direction                                                         String
+  channel                                                           String
+  sender_type                                                       String
+  sender_user_id                                                    String?              @db.Uuid
+  content                                                           String?
+  subject_line                                                      String?
+  media_urls                                                        Json?
+  twilio_message_sid                                                String?
+  is_voice_transcript                                               Boolean              @default(false)
+  voice_recording_url                                               String?
+  created_at                                                        DateTime             @default(now()) @db.Timestamptz(6)
+  attachments                                                       attachments[]
+  conversations_conversations_last_customer_message_idTomessage_log conversations[]      @relation("conversations_last_customer_message_idTomessage_log")
+  conversations_conversations_last_outbound_message_idTomessage_log conversations[]      @relation("conversations_last_outbound_message_idTomessage_log")
+  businesses                                                        businesses           @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations_message_log_conversation_idToconversations          conversations        @relation("message_log_conversation_idToconversations", fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                                             users?               @relation(fields: [sender_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  post_job_closeouts                                                post_job_closeouts[]
+  prompt_log                                                        prompt_log[]
+}
+
+model message_templates {
+  id              String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id     String     @db.Uuid
+  message_type    String
+  custom_template String
+  is_active       Boolean    @default(true)
+  created_at      DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime   @default(now()) @db.Timestamptz(6)
+  businesses      businesses @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model notifications {
+  id                String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id       String            @db.Uuid
+  user_id           String?           @db.Uuid
+  notification_type notification_type
+  reference_type    String?
+  reference_id      String?           @db.Uuid
+  title             String
+  summary           String?
+  is_read           Boolean           @default(false)
+  dismissed_at      DateTime?         @db.Timestamptz(6)
+  expires_at        DateTime?         @default(dbgenerated("(now() + '30 days'::interval)")) @db.Timestamptz(6)
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  businesses        businesses        @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users             users?            @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model outbound_queue {
+  id                         String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                String               @db.Uuid
+  conversation_id            String               @db.Uuid
+  message_purpose            String
+  audience_type              audience_type
+  channel                    message_channel
+  template_code              String?
+  content                    String?
+  dedupe_key                 String
+  workflow_key               String?
+  state_snapshot             String?
+  status                     outbound_status      @default(pending)
+  scheduled_send_at          DateTime             @db.Timestamptz(6)
+  quiet_hours_deferred_until DateTime?            @db.Timestamptz(6)
+  claim_token                String?              @db.Uuid
+  claimed_at                 DateTime?            @db.Timestamptz(6)
+  claim_expires_at           DateTime?            @db.Timestamptz(6)
+  send_attempt_count         Int                  @default(0)
+  max_retry_count            Int                  @default(3)
+  last_attempt_at            DateTime?            @db.Timestamptz(6)
+  next_retry_at              DateTime?            @db.Timestamptz(6)
+  invalidated_by_event_id    String?              @db.Uuid
+  send_result_code           String?
+  terminal_failure_reason    String?
+  created_at                 DateTime             @default(now()) @db.Timestamptz(6)
+  businesses                 businesses           @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations              conversations        @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  event_log                  event_log?           @relation(fields: [invalidated_by_event_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  post_job_closeouts         post_job_closeouts[]
+
+  @@unique([business_id, dedupe_key], map: "outbound_queue_dedupe_unique")
+}
+
+model parts_inquiries {
+  id               String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id      String        @db.Uuid
+  conversation_id  String        @db.Uuid
+  appointment_id   String?       @db.Uuid
+  part_description String
+  model_number     String?
+  urgency          String        @default("standard")
+  status           String        @default("pending")
+  confirmed_price  Decimal?      @db.Decimal
+  confirmed_eta    String?
+  confirmed_by     String?       @db.Uuid
+  created_at       DateTime      @default(now()) @db.Timestamptz(6)
+  confirmed_at     DateTime?     @db.Timestamptz(6)
+  appointments     appointments? @relation(fields: [appointment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businesses       businesses    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users            users?        @relation(fields: [confirmed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations    conversations @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model payment_management {
+  id              String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id     String         @db.Uuid
+  appointment_id  String?        @db.Uuid
+  conversation_id String?        @db.Uuid
+  customer_id     String         @db.Uuid
+  job_description String?
+  amount_due      Decimal?       @db.Decimal
+  payment_status  String         @default("pending")
+  job_date        DateTime?      @db.Date
+  completion_date DateTime?      @db.Date
+  created_at      DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime       @default(now()) @db.Timestamptz(6)
+  appointments    appointments?  @relation(fields: [appointment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businesses      businesses     @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations   conversations? @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers       customers      @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model post_job_closeouts {
+  id                     String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id            String          @db.Uuid
+  conversation_id        String          @db.Uuid
+  completion_record_type String
+  completion_record_id   String          @db.Uuid
+  eligibility_status     String
+  blocked_reason         String?
+  queued_queue_id        String?         @db.Uuid
+  sent_message_log_id    String?         @db.Uuid
+  created_at             DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime        @default(now()) @db.Timestamptz(6)
+  businesses             businesses      @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations          conversations   @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  outbound_queue         outbound_queue? @relation(fields: [queued_queue_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  message_log            message_log?    @relation(fields: [sent_message_log_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model pricing_items {
+  id                 String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id        String     @db.Uuid
+  service_name       String
+  price_type         String
+  amount             Decimal    @db.Decimal
+  description        String?
+  is_shareable_by_ai Boolean    @default(true)
+  created_at         DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime   @default(now()) @db.Timestamptz(6)
+  businesses         businesses @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model prompt_log {
+  id                   String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id          String        @db.Uuid
+  conversation_id      String        @db.Uuid
+  message_id           String?       @db.Uuid
+  prompt_purpose       String
+  prompt_text          String
+  response_text        String
+  model                String
+  token_count_prompt   Int?
+  token_count_response Int?
+  latency_ms           Int?
+  success              Boolean       @default(true)
+  error_message        String?
+  created_at           DateTime      @default(now()) @db.Timestamptz(6)
+  expires_at           DateTime      @default(dbgenerated("(now() + '30 days'::interval)")) @db.Timestamptz(6)
+  businesses           businesses    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations        conversations @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  message_log          message_log?  @relation(fields: [message_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([business_id, conversation_id, created_at(sort: Desc)], map: "prompt_log_lookup_idx")
+}
+
+model quotes {
+  id                    String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id           String        @db.Uuid
+  conversation_id       String        @db.Uuid
+  customer_id           String        @db.Uuid
+  status                quote_status  @default(intake_open)
+  requested_service     String?
+  quote_details         String?
+  approved_amount       Decimal?      @db.Decimal
+  approved_terms        String?
+  approved_by           String?       @db.Uuid
+  approved_at           DateTime?     @db.Timestamptz(6)
+  sent_at               DateTime?     @db.Timestamptz(6)
+  expires_at            DateTime?     @db.Timestamptz(6)
+  customer_response     String?
+  customer_responded_at DateTime?     @db.Timestamptz(6)
+  superseded_by         String?       @db.Uuid
+  created_at            DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime      @default(now()) @db.Timestamptz(6)
+  users                 users?        @relation(fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businesses            businesses    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations         conversations @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers             customers     @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  quotes                quotes?       @relation("quotesToquotes", fields: [superseded_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_quotes          quotes[]      @relation("quotesToquotes")
+}
+
+model recurring_service_change_requests {
+  id                     String                          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id            String                          @db.Uuid
+  recurring_service_id   String                          @db.Uuid
+  conversation_id        String?                         @db.Uuid
+  request_type           recurring_change_request_type
+  request_status         recurring_change_request_status @default(draft)
+  customer_reason        String?
+  preferred_day_text     String?
+  preferred_window_text  String?
+  flexibility_notes      String?
+  new_frequency          String?
+  suppression_active     Boolean                         @default(false)
+  suppression_started_at DateTime?                       @db.Timestamptz(6)
+  created_at             DateTime                        @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                        @default(now()) @db.Timestamptz(6)
+  businesses             businesses                      @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations          conversations?                  @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  recurring_services     recurring_services              @relation(fields: [recurring_service_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model recurring_services {
+  id                                String                              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                       String                              @db.Uuid
+  customer_id                       String                              @db.Uuid
+  service_type                      String
+  frequency                         String
+  frequency_details                 String?
+  preferred_day                     String?
+  preferred_time                    DateTime?                           @db.Time(6)
+  address                           String?
+  status                            String                              @default("active")
+  start_date                        DateTime                            @db.Date
+  end_date                          DateTime?                           @db.Date
+  created_by                        String
+  admin_notes                       String?
+  created_at                        DateTime                            @default(now()) @db.Timestamptz(6)
+  updated_at                        DateTime                            @default(now()) @db.Timestamptz(6)
+  appointments                      appointments[]
+  recurring_service_change_requests recurring_service_change_requests[]
+  businesses                        businesses                          @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers                         customers                           @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model users {
+  id                                         String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                                String?             @db.Uuid
+  email                                      String              @unique
+  display_name                               String?
+  role                                       user_role
+  password_hash                              String?
+  notification_preferences                   Json?
+  created_at                                 DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                                 DateTime            @default(now()) @db.Timestamptz(6)
+  approval_requests                          approval_requests[]
+  businesses_businesses_owner_user_idTousers businesses?         @relation("businesses_owner_user_idTousers")
+  escalations                                escalations[]
+  message_log                                message_log[]
+  notifications                              notifications[]
+  parts_inquiries                            parts_inquiries[]
+  quotes                                     quotes[]
+  businesses_users_business_idTobusinesses   businesses?         @relation("users_business_idTobusinesses", fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model web_chat_sessions {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id     String        @db.Uuid
+  conversation_id String        @db.Uuid
+  session_token   String        @unique @db.Uuid
+  customer_ip     String?
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  expires_at      DateTime      @default(dbgenerated("(now() + '24:00:00'::interval)")) @db.Timestamptz(6)
+  businesses      businesses    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations   conversations @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([business_id, session_token], map: "web_chat_sessions_lookup_idx")
+}
+
+enum appointment_request_status {
+  draft
+  accepted_from_customer
+  sent_to_admin
+  admin_approved
+  admin_denied
+  completed
+  superseded
+  canceled
+}
+
+enum appointment_status {
+  booked
+  rescheduled
+  canceled
+  completed
+  no_show
+}
+
+enum audience_type {
+  customer
+  internal
+}
+
+enum consent_status {
+  implied_inbound
+  opted_out
+  resubscribed
+}
+
+enum conversation_primary_state {
+  new_lead
+  lead_qualified
+  booking_in_progress
+  quote_sent
+  lead_followup_active
+  waiting_on_customer_details
+  waiting_on_photos
+  waiting_on_admin_quote
+  waiting_on_admin_scheduling
+  waiting_on_parts_confirmation
+  waiting_on_approval
+  booked
+  reschedule_in_progress
+  tech_assigned
+  en_route
+  job_in_progress
+  job_paused
+  job_completed
+  complaint_open
+  billing_dispute_open
+  safety_issue_open
+  legal_threat_open
+  incident_liability_open
+  insurance_review_open
+  permits_regulatory_review_open
+  vendor_dispute_open
+  restricted_topic_open
+  hostile_customer_open
+  human_takeover_active
+  resolved
+  closed_unqualified
+  closed_lost
+  closed_completed
+}
+
+enum dispatch_status {
+  en_route
+  delayed
+  arrived
+  on_site
+}
+
+enum escalation_category {
+  complaint
+  legal_threat
+  safety_issue
+  billing_dispute
+  insurance_issue
+  permit_regulatory_issue
+  hostile_customer
+  damage_liability_incident
+  vendor_dispute
+  restricted_topic
+  scope_dispute
+  contract_interpretation
+  blame_fault
+  internal_staff_issue
+}
+
+enum event_family {
+  inbound
+  outbound
+  state_machine
+  admin_action
+  detector
+  scheduler
+  integration
+  system
+}
+
+enum industry {
+  house_cleaning
+  commercial_cleaning
+  lawn_care
+  pressure_washing
+  junk_removal
+  painting
+  garage_door
+  landscaping
+  handyman
+  appliance_repair
+  tree_service
+  pool_service
+  window_cleaning
+  flooring
+  plumbing
+  hvac
+  electrical
+  auto_repair
+  carpet_cleaning
+  gutter_service
+  detailing
+}
+
+enum message_channel {
+  sms
+  voice
+  email
+  web_chat
+  push
+  other
+}
+
+enum notification_type {
+  safety_issue
+  legal_threat
+  complaint
+  scheduling_request
+  stale_item
+  quote_request
+  customer_message_during_takeover
+  job_complete
+  new_customer_message
+  approval_request
+  parts_request
+  recurring_appointment_created
+  urgent_service_request
+  ai_unavailable
+  calendar_deletion_pending
+  conversation_merged
+  customer_email_unsubscribed
+  customer_email_resubscribed
+}
+
+enum outbound_status {
+  pending
+  deferred
+  claimed
+  sent
+  failed_retryable
+  failed_terminal
+  canceled
+}
+
+enum quote_status {
+  intake_open
+  under_review
+  approved_to_send
+  sent
+  accepted
+  declined
+  superseded
+  withdrawn
+  expired
+}
+
+enum recurring_change_request_status {
+  draft
+  accepted_from_customer
+  sent_to_admin
+  admin_approved
+  admin_denied
+  completed
+  superseded
+  canceled
+}
+
+enum recurring_change_request_type {
+  cancel_service
+  skip_visit
+  reschedule_visit
+  change_frequency
+}
+
+enum source_actor {
+  customer
+  ai
+  admin_team
+  owner
+  provider
+  system
+  worker
+}
+
+enum tag_source {
+  detector
+  ai
+  admin_team
+  owner
+  system
+}
+
+enum user_role {
+  owner
+  admin
+}
+
+model twilio_config {
+  id                            String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                   String     @unique @db.Uuid
+  twilio_phone_number           String     @unique
+  twilio_account_sid            String
+  twilio_auth_token             String
+  twilio_messaging_service_sid  String?
+  is_active                     Boolean    @default(true)
+  created_at                    DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime   @default(now()) @db.Timestamptz(6)
+  businesses                    businesses @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([twilio_phone_number], map: "idx_twilio_config_phone")
+}
