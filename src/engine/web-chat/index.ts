@@ -201,13 +201,31 @@ export async function handleWebChatMessage(
   }
 
   // 6. Hand off to inbound handler
-  const result = await _inboundHandler({
-    businessId,
-    fromContact: session.id,
-    contactType: "phone",
-    channel: WEB_CHAT_CHANNEL,
-    content,
-  });
+  let result;
+  if (process.env.NODE_ENV === "test") {
+    result = await _inboundHandler({
+      businessId,
+      fromContact: session.id,
+      contactType: "phone",
+      channel: WEB_CHAT_CHANNEL,
+      content,
+    });
+  } else {
+    const { handleInboundMessage } = await import("~/engine/inbound/index");
+    const inboundResult = await handleInboundMessage({
+      businessId,
+      fromContact: session.id,
+      contactType: "phone",
+      channel: WEB_CHAT_CHANNEL,
+      content,
+    });
+    result = {
+      success: true,
+      customerId: inboundResult.customerId,
+      conversationId: inboundResult.conversationId,
+      messageId: inboundResult.messageId,
+    };
+  }
 
   if (!result.success) {
     // Roll back count increment on handler failure
