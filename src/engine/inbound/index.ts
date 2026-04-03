@@ -658,11 +658,19 @@ async function _handleInboundMessageFromDb(
         select: { id: true },
       });
       const { generateAIResponse } = await import("~/engine/ai-response/index");
-      const aiResult = await generateAIResponse({
-        businessId: params.businessId,
-        conversationId: conv.id,
-        inboundMessageId: msg.id,
-      });
+      console.log("[web-chat-ai] calling generateAIResponse for conversation:", conv.id);
+      let aiResult;
+      try {
+        aiResult = await generateAIResponse({
+          businessId: params.businessId,
+          conversationId: conv.id,
+          inboundMessageId: msg.id,
+        });
+        console.log("[web-chat-ai] result:", JSON.stringify(aiResult));
+      } catch (error) {
+        console.error("[web-chat-ai] ERROR:", error);
+        throw error;
+      }
       await db.outbound_queue.update({
         where: { id: queueRow.id },
         data: { status: "sent" },
