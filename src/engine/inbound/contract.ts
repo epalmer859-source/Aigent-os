@@ -61,6 +61,12 @@ export interface InboundResult {
   stateChanged: boolean;
   /** The new state after any transition, or undefined if no change occurred. */
   newState?: string;
+  /**
+   * The AI-generated reply text, present only for web_chat channel when
+   * aiResponseQueued is true. Web chat delivers the response synchronously
+   * rather than via the queue worker.
+   */
+  aiReplyText?: string;
 }
 
 // ── STOP / START keyword sets ─────────────────────────────────

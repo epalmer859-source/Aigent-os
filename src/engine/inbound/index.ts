@@ -30,6 +30,7 @@ import {
   type InboundParams,
   type InboundResult,
 } from "./contract";
+import { FALLBACK_RESPONSE } from "../ai-response/contract";
 
 // ── Zod validation schema ─────────────────────────────────────
 
@@ -641,17 +642,57 @@ async function _handleInboundMessageFromDb(
   }
 
   if (aiResponseQueued) {
-    await db.outbound_queue.create({
-      data: {
-        business_id: params.businessId,
-        conversation_id: conv.id,
-        message_purpose: "ai_response",
-        audience_type: "customer",
-        channel: params.channel as any,
-        dedupe_key: `ai_response:${conv.id}:${Date.now()}`,
-        scheduled_send_at: new Date(),
-      },
-    });
+    if (params.channel === "web_chat") {
+      // Web chat: respond synchronously — create the trigger row, generate the
+      // AI reply inline, mark the row as sent, and return the reply text directly.
+      const queueRow = await db.outbound_queue.create({
+        data: {
+          business_id: params.businessId,
+          conversation_id: conv.id,
+          message_purpose: "ai_response",
+          audience_type: "customer",
+          channel: params.channel as any,
+          dedupe_key: `ai_response:${conv.id}:${Date.now()}`,
+          scheduled_send_at: new Date(),
+        },
+        select: { id: true },
+      });
+      const { generateAIResponse } = await import("~/engine/ai-response/index");
+      const aiResult = await generateAIResponse({
+        businessId: params.businessId,
+        conversationId: conv.id,
+        inboundMessageId: msg.id,
+      });
+      await db.outbound_queue.update({
+        where: { id: queueRow.id },
+        data: { status: "sent" },
+      });
+      return {
+        customerId: resolved.customer.id,
+        conversationId: conv.id,
+        messageId: msg.id,
+        isNewCustomer: resolved.customer.isNew,
+        isNewConversation: isNewConv,
+        isReopened: conv.isReopened,
+        aiResponseQueued,
+        stateChanged,
+        newState,
+        aiReplyText: aiResult.decision?.response_text ?? FALLBACK_RESPONSE,
+      };
+    } else {
+      // SMS / email / voice: enqueue for the queue worker to process asynchronously.
+      await db.outbound_queue.create({
+        data: {
+          business_id: params.businessId,
+          conversation_id: conv.id,
+          message_purpose: "ai_response",
+          audience_type: "customer",
+          channel: params.channel as any,
+          dedupe_key: `ai_response:${conv.id}:${Date.now()}`,
+          scheduled_send_at: new Date(),
+        },
+      });
+    }
   }
 
   return {
