@@ -23,6 +23,9 @@ import { _setTwilioValidatorForTest } from "./webhooks/index";
 import { _setEmailSenderForTest } from "./email/index";
 import { _setSmsSenderForTest, _setEmailSenderForTest as _setNotifEmailSenderForTest } from "./notifications/index";
 import { _setGoogleCalendarClientForTest } from "./calendar-sync/index";
+import { _setInboundHandlerForTest } from "./web-chat/index";
+import { handleInboundMessage } from "./inbound/index";
+import type { WebChatInboundParams, WebChatInboundResult } from "./web-chat/contract";
 
 import type { GoogleCalendarClient } from "./calendar-sync/contract";
 
@@ -49,6 +52,33 @@ const googleCalendarStub: GoogleCalendarClient = {
     console.log("[calendar-stub] deleteEvent (stub):", { calendarId, eventId });
   },
 };
+
+// ── Web-chat → inbound adapter ────────────────────────────────
+
+async function webChatInboundAdapter(
+  params: WebChatInboundParams,
+): Promise<WebChatInboundResult> {
+  try {
+    const result = await handleInboundMessage({
+      businessId: params.businessId,
+      fromContact: params.fromContact,
+      contactType: params.contactType as "phone" | "email",
+      channel: params.channel as "sms" | "voice" | "email" | "web_chat",
+      content: params.content,
+    });
+    return {
+      success: true,
+      customerId: result.customerId,
+      conversationId: result.conversationId,
+      messageId: result.messageId,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "inbound_handler_error",
+    };
+  }
+}
 
 // ── Notification SMS sender stub ──────────────────────────────
 
@@ -83,6 +113,9 @@ export function initProductionEngine(): void {
 
   // 6. Calendar sync → stub Google Calendar client (real OAuth TBD)
   _setGoogleCalendarClientForTest(googleCalendarStub);
+
+  // 7. Web-chat endpoint → real inbound message handler
+  _setInboundHandlerForTest(webChatInboundAdapter);
 
   console.log("[production-init] Engine wired with production clients.");
 }

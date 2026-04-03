@@ -26,6 +26,9 @@ import {
   fakeTwilioValidator,
   fakeNotificationSmsSender,
 } from "./fake-twilio";
+import { _setInboundHandlerForTest } from "./web-chat/index";
+import { handleInboundMessage } from "./inbound/index";
+import type { WebChatInboundParams, WebChatInboundResult } from "./web-chat/contract";
 
 import { productionClaudeCall } from "./claude-client";
 import { productionEmailSender, productionNotificationEmailSender } from "./email-client";
@@ -79,6 +82,31 @@ export function initDevEngine(): void {
 
   // 6. Calendar sync → stub
   _setGoogleCalendarClientForTest(googleCalendarStub);
+
+  // 7. Web-chat endpoint → real inbound message handler (uses fake Twilio)
+  const webChatAdapter = async (params: WebChatInboundParams): Promise<WebChatInboundResult> => {
+    try {
+      const result = await handleInboundMessage({
+        businessId: params.businessId,
+        fromContact: params.fromContact,
+        contactType: params.contactType as "phone" | "email",
+        channel: params.channel as "sms" | "voice" | "email" | "web_chat",
+        content: params.content,
+      });
+      return {
+        success: true,
+        customerId: result.customerId,
+        conversationId: result.conversationId,
+        messageId: result.messageId,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "inbound_handler_error",
+      };
+    }
+  };
+  _setInboundHandlerForTest(webChatAdapter);
 
   console.log("[dev-init] Engine wired with FAKE Twilio. Outbound SMS will be recorded, not sent.");
   console.log("[dev-init] Import getFakeSentMessages() from ~/engine/fake-twilio to inspect sends.");
