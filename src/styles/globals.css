@@ -218,15 +218,17 @@ textarea {
   color-scheme: inherit;
 }
 
-/* ── Select: black bg + white text in dark mode, white bg + dark text in light ── */
+/* ── Select: match app surface colors in both modes ── */
 :root select {
-  background-color: #000000 !important;
-  color: #ffffff !important;
+  background-color: var(--bg-elevated) !important;
+  color: var(--t1) !important;
+  border-color: var(--input-border) !important;
 }
 
 html.light select {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
+  background-color: var(--input-bg) !important;
+  color: var(--t1) !important;
+  border-color: var(--input-border) !important;
 }
 
 /* ── Chat message pop-in ── */
