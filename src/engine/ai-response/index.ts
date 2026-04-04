@@ -496,15 +496,18 @@ async function _generateAIResponseFromDb(
   const { businessId, conversationId, inboundMessageId } = params;
 
   // Resolve customerId from DB.
+  console.log("[ai-response] starting for conversation:", conversationId);
   const convRow = await db.conversations.findUnique({
     where: { id: conversationId },
     select: { customer_id: true, primary_state: true },
   });
   if (!convRow) {
+    console.error("[ai-response] conversation not found:", conversationId);
     return { success: false, stateChanged: false, handoffCreated: false, error: `Customer not found for conversation ${conversationId}` };
   }
   const customerId = convRow.customer_id;
   const conversationState = convRow.primary_state as string;
+  console.log("[ai-response] conversation found, state:", conversationState, "customerId:", customerId);
 
   // Assemble prompt (will use Prisma in production since NODE_ENV !== "test").
   let systemPrompt: string;
@@ -513,8 +516,11 @@ async function _generateAIResponseFromDb(
     const assembled = await assemblePrompt({ businessId, conversationId, customerId, inboundMessageId });
     systemPrompt = assembled.systemPrompt;
     conversationHistory = assembled.conversationHistory.map((m) => ({ role: m.role, content: m.content }));
+    console.log("[ai-response] prompt assembled, system length:", systemPrompt.length, "history messages:", conversationHistory.length);
   } catch (err) {
-    return { success: false, stateChanged: false, handoffCreated: false, error: err instanceof Error ? err.message : String(err) };
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[ai-response] assemblePrompt failed:", msg);
+    return { success: false, stateChanged: false, handoffCreated: false, error: msg };
   }
 
   // Call Claude with retry.
@@ -525,21 +531,30 @@ async function _generateAIResponseFromDb(
   const maxAttempts = MAX_RETRIES + 1;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    console.log("[ai-response] claude call attempt", attempt + 1, "of", maxAttempts);
     try {
       const raw = await productionClaudeCall(systemPrompt, conversationHistory);
+      console.log("[ai-response] claude raw response (first 300 chars):", raw.slice(0, 300));
       decision = _parseDecision(raw);
-      if (decision !== null) break;
+      if (decision !== null) {
+        console.log("[ai-response] decision parsed successfully");
+        break;
+      }
       lastError = "Failed to parse AI response as JSON";
+      console.warn("[ai-response] parse failed, raw was:", raw.slice(0, 500));
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
+      console.error("[ai-response] claude call threw:", lastError);
       decision = null;
     }
   }
 
   const latencyMs = Date.now() - startTime;
+  console.log("[ai-response] claude total latency:", latencyMs, "ms, decision:", decision !== null ? "ok" : "null");
 
   // FALLBACK PATH
   if (decision === null) {
+    console.error("[ai-response] entering fallback path, lastError:", lastError);
     const { msgId, queueId } = await db.$transaction(async (tx) => {
       const msg = await tx.message_log.create({ data: { business_id: businessId, conversation_id: conversationId, direction: "outbound", channel: "sms", sender_type: "ai", content: FALLBACK_RESPONSE } });
       const q = await tx.outbound_queue.create({ data: { business_id: businessId, conversation_id: conversationId, message_purpose: "admin_response_relay", audience_type: "customer", channel: "sms", dedupe_key: `fallback:${Date.now()}`, scheduled_send_at: new Date() } });
