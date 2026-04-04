@@ -518,6 +518,7 @@ async function _generateAIResponseFromDb(
   }
 
   // Call Claude with retry.
+  const { productionClaudeCall } = await import("~/engine/claude-client");
   const startTime = Date.now();
   let decision: AIDecision | null = null;
   let lastError: string | undefined;
@@ -525,7 +526,7 @@ async function _generateAIResponseFromDb(
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const raw = await _claudeCall(systemPrompt, conversationHistory);
+      const raw = await productionClaudeCall(systemPrompt, conversationHistory);
       decision = _parseDecision(raw);
       if (decision !== null) break;
       lastError = "Failed to parse AI response as JSON";
@@ -642,8 +643,13 @@ export async function regenerateSummary(conversationId: string): Promise<boolean
   // Preserve existing summary before attempt
   const existingSummary = getConversationSummary(conversationId);
 
+  const claudeCallFn =
+    process.env.NODE_ENV !== "test"
+      ? (await import("~/engine/claude-client")).productionSummaryCall
+      : _claudeCall;
+
   try {
-    const summary = await _claudeCall(systemPrompt, history);
+    const summary = await claudeCallFn(systemPrompt, history);
     if (!summary || summary.trim() === "") return false;
     // Production: db.conversations.update({ where: { id: conversationId }, data: { cached_summary: summary } })
     updateConversationSummary(conversationId, summary.trim());
