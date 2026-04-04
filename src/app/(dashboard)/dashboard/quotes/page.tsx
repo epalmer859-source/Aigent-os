@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
 
-// ── Constants ──────────────────────────────────────────────────────────────
+// ── Types & constants ──────────────────────────────────────────────────────
+
 type ViewType = "needs_action" | "sent" | "closed" | "all";
 
 const VIEW_TABS: { value: ViewType; label: string }[] = [
@@ -14,63 +15,94 @@ const VIEW_TABS: { value: ViewType; label: string }[] = [
   { value: "all", label: "All" },
 ];
 
-const STATUS_COLORS: Record<string, string> = {
-  intake_open: "bg-gray-100 text-gray-700",
-  under_review: "bg-yellow-100 text-yellow-800",
-  approved_to_send: "bg-blue-100 text-blue-800",
-  sent: "bg-blue-100 text-blue-800",
-  accepted: "bg-green-100 text-green-800",
-  declined: "bg-red-100 text-red-800",
-  withdrawn: "bg-gray-100 text-gray-600",
-  expired: "bg-orange-100 text-orange-800",
-  superseded: "bg-gray-100 text-gray-600",
+const STATUS_BADGE: Record<string, { bg: string; text: string }> = {
+  intake_open:     { bg: "rgba(113,113,122,0.12)", text: "#a1a1aa" },
+  under_review:    { bg: "rgba(234,179,8,0.12)",   text: "#facc15" },
+  approved_to_send:{ bg: "rgba(59,130,246,0.12)",  text: "#60a5fa" },
+  sent:            { bg: "rgba(59,130,246,0.12)",  text: "#60a5fa" },
+  accepted:        { bg: "rgba(34,197,94,0.12)",   text: "#4ade80" },
+  declined:        { bg: "rgba(239,68,68,0.12)",   text: "#f87171" },
+  withdrawn:       { bg: "rgba(113,113,122,0.12)", text: "#71717a" },
+  expired:         { bg: "rgba(249,115,22,0.12)",  text: "#fb923c" },
+  superseded:      { bg: "rgba(113,113,122,0.12)", text: "#71717a" },
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
 function fmtCurrency(amount: unknown): string {
   const n = Number(amount);
   if (isNaN(n)) return "";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(n);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
 function timeAgo(date: Date | string): string {
   const ms = Date.now() - new Date(date).getTime();
   const min = Math.round(ms / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
+  if (min < 1) return "now";
+  if (min < 60) return `${min}m`;
   const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.round(hr / 24)}d ago`;
+  if (hr < 24) return `${hr}h`;
+  return `${Math.round(hr / 24)}d`;
 }
 
-function expiresLabel(expires: Date | string | null | undefined): {
-  text: string;
-  red: boolean;
-} | null {
+function expiresLabel(expires: Date | string | null | undefined): { text: string; warn: boolean } | null {
   if (!expires) return null;
   const diff = new Date(expires).getTime() - Date.now();
-  if (diff < 0) return { text: "Expired", red: true };
+  if (diff < 0) return { text: "Expired", warn: true };
   const days = Math.ceil(diff / 86_400_000);
-  return {
-    text: days === 1 ? "Expires tomorrow" : `Expires in ${days}d`,
-    red: days <= 2,
-  };
+  return { text: days === 1 ? "Expires tomorrow" : `Expires in ${days}d`, warn: days <= 2 };
 }
 
-// ── Skeleton ───────────────────────────────────────────────────────────────
+// ── Shared UI ─────────────────────────────────────────────────────────────
+
+function SegTabs<T extends string>({
+  tabs, value, onChange,
+}: {
+  tabs: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div
+      className="flex gap-1 rounded-xl p-1"
+      style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+    >
+      {tabs.map((tab) => {
+        const active = value === tab.value;
+        return (
+          <button
+            key={tab.value}
+            onClick={() => onChange(tab.value)}
+            className="flex-1 rounded-lg py-2 text-xs font-medium transition-all duration-150"
+            style={{
+              background: active ? "var(--bg-surface)" : "transparent",
+              color: active ? "var(--t1)" : "var(--t3)",
+              border: active ? "1px solid var(--border)" : "1px solid transparent",
+              boxShadow: active ? "0 1px 4px rgba(0,0,0,0.25)" : "none",
+            }}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function CardSkeleton() {
   return (
-    <div className="animate-pulse rounded-xl border border-gray-100 bg-gray-50 p-4">
-      <div className="mb-2 h-4 w-1/3 rounded bg-gray-200" />
-      <div className="h-3 w-1/2 rounded bg-gray-200" />
+    <div
+      className="animate-pulse rounded-2xl p-4 space-y-2"
+      style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}
+    >
+      <div className="h-3.5 w-1/3 rounded-md" style={{ background: "var(--skeleton)" }} />
+      <div className="h-3 w-1/2 rounded-md" style={{ background: "var(--skeleton)" }} />
     </div>
   );
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────
+
 export default function QuotesPage() {
   const router = useRouter();
   const [view, setView] = useState<ViewType>("needs_action");
@@ -81,18 +113,13 @@ export default function QuotesPage() {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setSearch(searchInput), 300);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [searchInput]);
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     api.quotes.list.useInfiniteQuery(
       { view, limit: 25, search: search || undefined },
-      {
-        getNextPageParam: (last) => last.nextCursor,
-        refetchInterval: 15_000,
-      },
+      { getNextPageParam: (last) => last.nextCursor, refetchInterval: 15_000 },
     );
 
   const allItems = data?.pages.flatMap((p) => p.items) ?? [];
@@ -101,100 +128,97 @@ export default function QuotesPage() {
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
-          void fetchNextPage();
-        }
-      },
+    const obs = new IntersectionObserver(
+      (e) => { if (e[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) void fetchNextPage(); },
       { threshold: 0.1 },
     );
-    observer.observe(el);
-    return () => observer.disconnect();
+    obs.observe(el);
+    return () => obs.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  const inputStyle = {
+    background: "var(--input-bg)", border: "1px solid var(--input-border)",
+    color: "var(--t1)", outline: "none", borderRadius: "10px",
+  };
+
   return (
-    <div className="flex flex-col gap-4">
-      {/* View tabs */}
-      <div className="flex gap-1 rounded-xl border border-gray-200 bg-white p-1">
-        {VIEW_TABS.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => setView(tab.value)}
-            className={[
-              "flex-1 rounded-lg py-2 text-sm font-medium transition",
-              view === tab.value
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-gray-500 hover:text-gray-700",
-            ].join(" ")}
-          >
-            {tab.label}
-          </button>
-        ))}
+    <div className="mx-auto max-w-3xl space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold" style={{ color: "var(--t1)" }}>Quotes</h1>
+          <p className="mt-0.5 text-xs" style={{ color: "var(--t3)" }}>Estimates and proposals</p>
+        </div>
+        <input
+          type="search"
+          placeholder="Search customer…"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          className="w-48 px-3 py-2 text-xs"
+          style={inputStyle}
+        />
       </div>
 
-      {/* Search */}
-      <input
-        type="search"
-        placeholder="Search by customer name…"
-        value={searchInput}
-        onChange={(e) => setSearchInput(e.target.value)}
-        className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-      />
+      {/* Segment tabs */}
+      <SegTabs tabs={VIEW_TABS} value={view} onChange={setView} />
 
-      {/* Cards */}
-      <div className="space-y-3">
+      {/* List */}
+      <div className="space-y-2">
         {isLoading ? (
-          <>
-            <CardSkeleton />
-            <CardSkeleton />
-            <CardSkeleton />
-          </>
+          <><CardSkeleton /><CardSkeleton /><CardSkeleton /></>
         ) : allItems.length === 0 ? (
-          <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">
+          <div
+            className="rounded-2xl p-10 text-center text-sm"
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--t3)" }}
+          >
             No quotes found
           </div>
         ) : (
           <>
             {allItems.map((q) => {
-              const customerName =
-                q.conversations?.contact_display_name ??
-                q.conversations?.contact_handle ??
-                "Unknown customer";
-              const statusColor =
-                STATUS_COLORS[q.status] ?? "bg-gray-100 text-gray-700";
+              const name = q.conversations?.contact_display_name ?? q.conversations?.contact_handle ?? "Unknown";
+              const badgeStyle = STATUS_BADGE[q.status] ?? { bg: "rgba(113,113,122,0.12)", text: "#a1a1aa" };
               const exp = expiresLabel(q.expires_at);
 
               return (
                 <button
                   key={q.id}
                   onClick={() => router.push(`/dashboard/quotes/${q.id}`)}
-                  className="flex w-full flex-col gap-2 rounded-xl border border-gray-200 bg-white p-4 text-left transition hover:border-blue-200 hover:shadow-sm"
+                  className="flex w-full flex-col gap-2.5 rounded-2xl p-4 text-left transition-all duration-150"
+                  style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border-strong)"; (e.currentTarget as HTMLElement).style.background = "var(--bg-elevated)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLElement).style.background = "var(--bg-surface)"; }}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-gray-900">
-                      {customerName}
-                    </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-sm font-semibold" style={{ color: "var(--t1)" }}>{name}</span>
                     <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusColor}`}
+                      className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium capitalize"
+                      style={{ background: badgeStyle.bg, color: badgeStyle.text }}
                     >
                       {q.status.replace(/_/g, " ")}
                     </span>
                   </div>
 
                   {q.requested_service && (
-                    <p className="text-sm text-gray-600">{q.requested_service}</p>
+                    <p className="text-xs leading-relaxed" style={{ color: "var(--t2)" }}>
+                      {q.requested_service}
+                    </p>
                   )}
 
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400">
+                  <div className="flex flex-wrap items-center gap-3">
                     {q.approved_amount != null && (
-                      <span className="font-semibold text-gray-700">
+                      <span className="text-sm font-bold tabular-nums" style={{ color: "var(--accent-text)" }}>
                         {fmtCurrency(q.approved_amount)}
                       </span>
                     )}
-                    <span>{timeAgo(q.sent_at ?? q.created_at)}</span>
+                    <span className="text-xs" style={{ color: "var(--t3)" }}>
+                      {timeAgo(q.sent_at ?? q.created_at)}
+                    </span>
                     {exp && (
-                      <span className={exp.red ? "font-medium text-red-600" : ""}>
+                      <span
+                        className="text-xs font-medium"
+                        style={{ color: exp.warn ? "#f87171" : "var(--t3)" }}
+                      >
                         {exp.text}
                       </span>
                     )}
@@ -204,9 +228,7 @@ export default function QuotesPage() {
             })}
             <div ref={sentinelRef} className="h-4" />
             {isFetchingNextPage && (
-              <p className="py-3 text-center text-xs text-gray-400">
-                Loading more…
-              </p>
+              <p className="py-3 text-center text-xs" style={{ color: "var(--t3)" }}>Loading more…</p>
             )}
           </>
         )}
