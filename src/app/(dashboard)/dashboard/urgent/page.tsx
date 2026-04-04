@@ -163,7 +163,7 @@ export default function UrgentPage() {
           <div className="space-y-2">
             {data!.escalations.map((esc) => {
               const conv = esc.conversations;
-              const name = conv?.customers?.display_name ?? conv?.contact_display_name ?? conv?.contact_handle ?? "Unknown";
+              const name = (() => { const dn = conv?.contact_display_name; const ph = conv?.contact_handle; const base = dn && ph ? `${dn} · ${ph}` : dn ?? ph ?? "Untitled"; return conv?.customers?.display_name ?? base; })();
               const lastMsg = conv?.message_log_conversations_last_customer_message_idTomessage_log;
               return (
                 <AlertCard key={esc.id} accentColor="#ef4444">
@@ -205,7 +205,8 @@ export default function UrgentPage() {
         ) : (
           <div className="space-y-2">
             {data!.staleConversations.map((conv) => {
-              const name = conv.customers?.display_name ?? conv.contact_display_name ?? conv.contact_handle ?? "Unknown";
+              const _dn = conv.contact_display_name; const _ph = conv.contact_handle;
+              const name = conv.customers?.display_name ?? (_dn && _ph ? `${_dn} · ${_ph}` : _dn ?? _ph ?? "Untitled");
               const lastMsg = conv.message_log_conversations_last_customer_message_idTomessage_log;
               return (
                 <AlertCard key={conv.id} accentColor="#f97316">
@@ -240,7 +241,7 @@ export default function UrgentPage() {
           <div className="space-y-2">
             {data!.pendingApprovals.map((appr) => {
               const conv = appr.conversations;
-              const name = conv?.customers?.display_name ?? conv?.contact_display_name ?? conv?.contact_handle ?? "Unknown";
+              const name = (() => { const dn = conv?.contact_display_name; const ph = conv?.contact_handle; const base = dn && ph ? `${dn} · ${ph}` : dn ?? ph ?? "Untitled"; return conv?.customers?.display_name ?? base; })();
               return (
                 <AlertCard key={appr.id} accentColor="#eab308">
                   <div className="flex items-start justify-between gap-2">
@@ -273,7 +274,8 @@ export default function UrgentPage() {
         ) : (
           <div className="space-y-2">
             {data!.humanTakeovers.map((conv) => {
-              const name = conv.customers?.display_name ?? conv.contact_display_name ?? conv.contact_handle ?? "Unknown";
+              const _dn = conv.contact_display_name; const _ph = conv.contact_handle;
+              const name = conv.customers?.display_name ?? (_dn && _ph ? `${_dn} · ${_ph}` : _dn ?? _ph ?? "Untitled");
               return (
                 <AlertCard key={conv.id} accentColor="#a855f7">
                   <div className="flex items-start justify-between gap-2">
@@ -304,7 +306,8 @@ export default function UrgentPage() {
         ) : (
           <div className="space-y-2">
             {data!.todayAppointments.map((appt) => {
-              const name = appt.customers?.display_name ?? appt.conversations?.contact_display_name ?? appt.conversations?.contact_handle ?? "Unknown";
+              const _dn = appt.conversations?.contact_display_name; const _ph = appt.conversations?.contact_handle;
+              const name = appt.customers?.display_name ?? (_dn && _ph ? `${_dn} · ${_ph}` : _dn ?? _ph ?? "Untitled");
               return (
                 <AlertCard key={appt.id} accentColor="#3b82f6">
                   <div className="flex items-start justify-between gap-2">

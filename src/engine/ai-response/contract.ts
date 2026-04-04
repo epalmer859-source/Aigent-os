@@ -26,6 +26,10 @@ export interface AIDecision {
   responseText?: string;
   /** Target state for a transition, or null if no change proposed. */
   proposed_state_change: string | null;
+  /** Customer's full name if just collected in this turn — used to title the conversation. */
+  collected_name?: string | null;
+  /** Customer's callback phone number if just collected in this turn — used to title the conversation. */
+  collected_phone?: string | null;
   /** True if a human should take over this conversation. */
   handoff_required: boolean;
   /** Required when handoff_required = true. */

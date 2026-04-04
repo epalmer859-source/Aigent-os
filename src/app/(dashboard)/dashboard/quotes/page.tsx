@@ -176,7 +176,9 @@ export default function QuotesPage() {
         ) : (
           <>
             {allItems.map((q) => {
-              const name = q.conversations?.contact_display_name ?? q.conversations?.contact_handle ?? "Unknown";
+              const _dn = q.conversations?.contact_display_name;
+              const _ph = q.conversations?.contact_handle;
+              const name = _dn && _ph ? `${_dn} · ${_ph}` : _dn ?? _ph ?? "Untitled";
               const badgeStyle = STATUS_BADGE[q.status] ?? { bg: "rgba(113,113,122,0.12)", text: "#a1a1aa" };
               const exp = expiresLabel(q.expires_at);
 

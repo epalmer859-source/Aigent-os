@@ -220,7 +220,9 @@ const AI_DECISION_SCHEMA = `
   "requestedDataFields": "string[] | null — fields you still need from the customer",
   "confidence": "number — 0.0 to 1.0, how confident you are in this response",
   "shouldEscalate": "boolean — true if a human should review this conversation",
-  "escalationReason": "string | null — why escalation is needed, or null"
+  "escalationReason": "string | null — why escalation is needed, or null",
+  "collectedName": "string | null — the customer's full name if they provided it in this turn, otherwise null",
+  "collectedPhone": "string | null — the customer's callback phone number if they provided it in this turn, otherwise null"
 }`;
 
 // ── Layer builders ────────────────────────────────────────────

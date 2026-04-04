@@ -174,7 +174,11 @@ export default function ConversationsPage() {
         ) : (
           <>
             {allItems.map((conv) => {
-              const name = conv.contact_display_name ?? conv.contact_handle ?? "Unknown";
+              const displayName = conv.contact_display_name;
+              const phone = conv.contact_handle;
+              const name = displayName && phone
+                ? `${displayName} · ${phone}`
+                : displayName ?? phone ?? "Untitled";
               const initials = CHANNEL_INITIALS[conv.channel] ?? "??";
               return (
                 <button

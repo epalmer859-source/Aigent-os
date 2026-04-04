@@ -195,7 +195,9 @@ export default function AppointmentsPage() {
         ) : (
           <>
             {allItems.map((appt) => {
-              const name = appt.conversations?.contact_display_name ?? appt.conversations?.contact_handle ?? "Unknown";
+              const _dn = appt.conversations?.contact_display_name;
+              const _ph = appt.conversations?.contact_handle;
+              const name = _dn && _ph ? `${_dn} · ${_ph}` : _dn ?? _ph ?? "Untitled";
               const statusStyle = STATUS_BADGE[appt.status] ?? { bg: "rgba(113,113,122,0.12)", text: "#a1a1aa" };
               const d = new Date(appt.appointment_date);
 

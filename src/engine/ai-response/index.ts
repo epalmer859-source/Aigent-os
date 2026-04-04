@@ -632,6 +632,7 @@ async function _generateAIResponseFromDb(
 
   // Store outbound message + queue row + prompt log in a transaction.
   // Also stamp ai_disclosure_sent_at on first message so the disclosure never repeats.
+  // Update conversation title (contact_display_name / contact_handle) when name/phone are collected.
   const { msgId, queueId } = await db.$transaction(async (tx) => {
     const msg = await tx.message_log.create({ data: { business_id: businessId, conversation_id: conversationId, direction: "outbound", channel: "sms", sender_type: "ai", content: responseText } });
     const q = await tx.outbound_queue.create({ data: { business_id: businessId, conversation_id: conversationId, message_purpose: messagePurpose, audience_type: "customer", channel: "sms", dedupe_key: `ai:${conversationId}:${Date.now()}`, scheduled_send_at: new Date() } });
@@ -640,6 +641,20 @@ async function _generateAIResponseFromDb(
       where: { id: customerId, ai_disclosure_sent_at: null },
       data: { ai_disclosure_sent_at: new Date() },
     });
+
+    // If Claude collected a name or phone this turn, write them to the conversation title.
+    const collectedName = effectiveDecision.collected_name ?? (effectiveDecision as Record<string, unknown>)["collectedName"] as string | null | undefined;
+    const collectedPhone = effectiveDecision.collected_phone ?? (effectiveDecision as Record<string, unknown>)["collectedPhone"] as string | null | undefined;
+    if (collectedName ?? collectedPhone) {
+      const titleUpdate: Record<string, string> = {};
+      if (collectedName) titleUpdate["contact_display_name"] = collectedName;
+      if (collectedPhone) titleUpdate["contact_handle"] = collectedPhone;
+      await tx.conversations.update({
+        where: { id: conversationId },
+        data: titleUpdate as never,
+      });
+    }
+
     return { msgId: msg.id, queueId: q.id };
   });
 

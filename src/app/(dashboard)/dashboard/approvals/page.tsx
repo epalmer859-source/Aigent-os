@@ -131,7 +131,9 @@ export default function ApprovalsPage() {
         ) : (
           <>
             {allItems.map((item) => {
-              const name = item.conversations?.contact_display_name ?? item.conversations?.contact_handle ?? "Unknown";
+              const _dn = item.conversations?.contact_display_name;
+              const _ph = item.conversations?.contact_handle;
+              const name = _dn && _ph ? `${_dn} · ${_ph}` : _dn ?? _ph ?? "Untitled";
               const badgeStyle = STATUS_BADGE[item.status] ?? { bg: "rgba(113,113,122,0.12)", text: "#a1a1aa" };
               const isPending = item.status === "pending";
 

@@ -178,7 +178,9 @@ export default function EscalationsPage() {
         ) : (
           <>
             {allItems.map((esc) => {
-              const name = esc.conversations?.contact_display_name ?? esc.conversations?.contact_handle ?? "Unknown";
+              const _dn = esc.conversations?.contact_display_name;
+              const _ph = esc.conversations?.contact_handle;
+              const name = _dn && _ph ? `${_dn} · ${_ph}` : _dn ?? _ph ?? "Untitled";
               const statusStyle = STATUS_BADGE[esc.status] ?? { bg: "rgba(113,113,122,0.12)", text: "#a1a1aa" };
               const urgencyStyle = URGENCY_BADGE[esc.urgency] ?? { bg: "rgba(113,113,122,0.12)", text: "#a1a1aa", border: "transparent" };
               const accent = LEFT_ACCENT[esc.urgency] ?? "var(--border)";
