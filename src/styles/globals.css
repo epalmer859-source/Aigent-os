@@ -218,6 +218,17 @@ textarea {
   color-scheme: inherit;
 }
 
+/* ── Select: black bg + white text in dark mode, white bg + dark text in light ── */
+:root select {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+html.light select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
 /* ── Chat message pop-in ── */
 @keyframes msg-in {
   from { opacity: 0; transform: translateY(8px) scale(0.97); }
