@@ -630,6 +630,63 @@ async function _generateAIResponseFromDb(
     handoffCreated = true;
   }
 
+  // ── booking_confirmed: transition + admin request + confirmation SMS ────────
+  const isBookingConfirmed = flags.includes("booking_confirmed");
+  if (isBookingConfirmed) {
+    // Fetch the conversation's current contact info for the SMS and summary.
+    const convInfo = await db.conversations.findUnique({
+      where: { id: conversationId },
+      select: { contact_display_name: true, contact_handle: true },
+    });
+    const customerPhone = convInfo?.contact_handle ?? null;
+    const customerName = convInfo?.contact_display_name ?? "there";
+    const availPref = effectiveDecision.availability_preference
+      ?? (effectiveDecision as Record<string, unknown>)["availabilityPreference"] as string | null | undefined
+      ?? null;
+    const summaryText = [
+      customerName !== "there" ? `Customer: ${customerName}` : null,
+      customerPhone ? `Phone: ${customerPhone}` : null,
+      availPref ? `Availability: ${availPref}` : null,
+    ].filter(Boolean).join(" | ") || "Scheduling request from web chat";
+
+    // Transition state to waiting_on_admin_scheduling.
+    await db.conversations.update({
+      where: { id: conversationId },
+      data: { primary_state: "waiting_on_admin_scheduling" as never, current_owner: "admin_team" },
+    });
+    updateConversationState(conversationId, "waiting_on_admin_scheduling");
+    stateChanged = true;
+    newState = "waiting_on_admin_scheduling";
+
+    // Create admin scheduling approval request.
+    await db.approval_requests.create({
+      data: {
+        business_id: businessId,
+        conversation_id: conversationId,
+        customer_id: customerId,
+        request_type: "scheduling_request",
+        status: "pending",
+        ai_summary: summaryText,
+      },
+    });
+
+    // Queue confirmation SMS to customer's phone if we have one.
+    if (customerPhone) {
+      await db.outbound_queue.create({
+        data: {
+          business_id: businessId,
+          conversation_id: conversationId,
+          message_purpose: "booking_confirmation",
+          audience_type: "customer",
+          channel: "sms",
+          content: `Hi${customerName !== "there" ? ` ${customerName}` : ""}! We received your request and will reach out shortly to confirm your appointment time. Thank you!`,
+          dedupe_key: `booking_confirmed:${conversationId}`,
+          scheduled_send_at: new Date(),
+        },
+      });
+    }
+  }
+
   // Store outbound message + queue row + prompt log in a transaction.
   // Also stamp ai_disclosure_sent_at on first message so the disclosure never repeats.
   // Update conversation title (contact_display_name / contact_handle) when name/phone are collected.

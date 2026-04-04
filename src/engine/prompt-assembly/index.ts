@@ -193,7 +193,7 @@ const STATE_INSTRUCTIONS: Record<string, string> = {
   lead_qualified:
     "The lead is qualified. Continue gathering any missing details and move toward booking or quote. When timing comes up, follow the SCHEDULING AVAILABILITY RULE exactly.",
   booking_in_progress:
-    "You are helping schedule an appointment. Collect address if not already provided. Follow the SCHEDULING AVAILABILITY RULE to ask about timing — present the exact options list. Confirm all details before submitting to the team.",
+    "You are helping schedule an appointment. Collect address if not already provided. Follow the SCHEDULING AVAILABILITY RULE to ask about timing — present the exact options list. Once you have: name, phone, service, address, and availability preference — ask the customer a final confirmation: summarize everything back to them and ask 'Does everything look right, or is there anything you'd like to change?' If the customer confirms yes with no changes, send a warm closing message (e.g. 'Perfect! We have everything we need. You'll receive a text shortly confirming we received your request — we'll follow up with your appointment time.') and set rule_flags to include 'booking_confirmed'. If they want changes, update the relevant detail and ask again. Do not set booking_confirmed until the customer explicitly says everything looks good.",
   quote_sent:
     "A quote has been sent to the customer. Follow up on their decision. Answer questions about the quote. Do not pressure — be helpful and let the quote speak for itself.",
   lead_followup_active:
@@ -222,7 +222,8 @@ const AI_DECISION_SCHEMA = `
   "shouldEscalate": "boolean — true if a human should review this conversation",
   "escalationReason": "string | null — why escalation is needed, or null",
   "collectedName": "string | null — the customer's full name if they provided it in this turn, otherwise null",
-  "collectedPhone": "string | null — the customer's callback phone number if they provided it in this turn, otherwise null"
+  "collectedPhone": "string | null — the customer's callback phone number if they provided it in this turn, otherwise null",
+  "availabilityPreference": "string | null — the customer's scheduling preference (e.g. 'Soonest available', 'Mornings only') if collected in this turn, otherwise null"
 }`;
 
 // ── Layer builders ────────────────────────────────────────────

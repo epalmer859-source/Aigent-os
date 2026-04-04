@@ -30,6 +30,8 @@ export interface AIDecision {
   collected_name?: string | null;
   /** Customer's callback phone number if just collected in this turn — used to title the conversation. */
   collected_phone?: string | null;
+  /** Customer's scheduling availability preference if collected in this turn. */
+  availability_preference?: string | null;
   /** True if a human should take over this conversation. */
   handoff_required: boolean;
   /** Required when handoff_required = true. */
@@ -45,7 +47,7 @@ export interface AIDecision {
   /**
    * Triggered rule identifiers. Processed after validation.
    * Known values: "human_requested", "aggressive_message", "out_of_area",
-   * "legal_threat_detected", "safety_concern_detected".
+   * "legal_threat_detected", "safety_concern_detected", "booking_confirmed".
    */
   rule_flags: string[];
   /**
