@@ -364,6 +364,19 @@ export async function assemblePrompt(context: PromptContext): Promise<AssembledP
   return { systemPrompt, conversationHistory, metadata };
 }
 
+// ── Utility: safely coerce unknown DB values to string[] ─────
+// Postgres JSON columns may come back as a string (if stored as a JSON string)
+// or as a native JS array (if stored as a jsonb array).  Either way we need
+// a plain string[] before calling .join().
+
+function ensureArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val as string[];
+  if (typeof val === "string") {
+    try { return JSON.parse(val) as string[]; } catch { return [val]; }
+  }
+  return [];
+}
+
 // ── Production Prisma implementation ─────────────────────────
 
 async function _assemblePromptFromDb(context: PromptContext): Promise<AssembledPrompt> {
@@ -376,8 +389,8 @@ async function _assemblePromptFromDb(context: PromptContext): Promise<AssembledP
   });
 
   const cfg = bizRow.business_config;
-  const servicesOffered = cfg ? (cfg.services_offered as string[]) : [];
-  const servicesNotOffered = cfg ? ((cfg.services_not_offered as string[] | null) ?? []) : [];
+  const servicesOffered = cfg ? ensureArray(cfg.services_offered) : [];
+  const servicesNotOffered = cfg ? ensureArray(cfg.services_not_offered) : [];
 
   // Build service area string.
   let serviceArea = "Service area not configured";
@@ -401,9 +414,11 @@ async function _assemblePromptFromDb(context: PromptContext): Promise<AssembledP
     }
   }
 
-  const paymentMethods = bizRow.payment_methods
-    ? bizRow.payment_methods.split(",").map((s) => s.trim())
-    : [];
+  const paymentMethods = ensureArray(
+    bizRow.payment_methods
+      ? bizRow.payment_methods.split(",").map((s) => s.trim())
+      : [],
+  );
 
   const biz: BusinessConfigRecord = {
     id: bizRow.id,
@@ -435,7 +450,7 @@ async function _assemblePromptFromDb(context: PromptContext): Promise<AssembledP
     primaryState: convRow.primary_state as string,
     currentOwner: convRow.current_owner,
     cachedSummary: convRow.cached_summary ?? null,
-    tags: convRow.conversation_tags.map((t) => t.tag_code),
+    tags: ensureArray(convRow.conversation_tags.map((t) => t.tag_code)),
     workflowStep: convRow.current_workflow_step ?? null,
     requestedDataFields: null,
   };
