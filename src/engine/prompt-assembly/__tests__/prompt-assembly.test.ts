@@ -9,7 +9,7 @@
 // Test categories:
 //   L01-L10  Layer assembly (content present in systemPrompt)
 //   H01-H04  Conversation history (ordering, mapping, count)
-//   D01-D02  AI disclosure instruction
+//   D01-D02  No disclosure / no emoji
 //   M01-M05  Metadata fields
 //   S01-S04  State-specific instructions
 // ============================================================
@@ -29,7 +29,6 @@ import {
 // ── Constants from contract ───────────────────────────────────
 import {
   MAX_HISTORY_MESSAGES,
-  AI_DISCLOSURE_TEMPLATE,
   RESPONSE_FORMAT_INSTRUCTION,
   type PromptContext,
   type AssembledPrompt,
@@ -247,27 +246,25 @@ describe("H: Conversation history", () => {
   });
 });
 
-// ── D: AI disclosure ──────────────────────────────────────────
+// ── D: No disclosure / no emoji ──────────────────────────────
 
-describe("D: AI disclosure", () => {
+describe("D: No disclosure / no emoji", () => {
   beforeEach(() => {
     resetAll();
     seedDefaultBusiness();
     seedDefaultConversation();
   });
 
-  it("D01: ai_disclosure_sent_at is null → prompt includes first-message disclosure instruction", async () => {
+  it("D01: prompt never contains AI disclosure instruction regardless of ai_disclosure_sent_at", async () => {
     seedDefaultCustomer({ aiDisclosureSentAt: null });
     const result = await assemblePrompt(makeContext());
-    // Should include the disclosure instruction (interpolated or template)
-    expect(result.systemPrompt).toContain("first message");
-    expect(result.systemPrompt).toContain("MUST include the AI disclosure");
+    expect(result.systemPrompt).not.toContain("MUST include the AI disclosure");
   });
 
-  it("D02: ai_disclosure_sent_at is set → prompt does NOT include disclosure instruction", async () => {
-    seedDefaultCustomer({ aiDisclosureSentAt: new Date("2024-01-01T00:00:00Z") });
+  it("D02: prompt always contains no-emoji rule", async () => {
+    seedDefaultCustomer();
     const result = await assemblePrompt(makeContext());
-    expect(result.systemPrompt).not.toContain("MUST include the AI disclosure");
+    expect(result.systemPrompt).toContain("Never use emojis");
   });
 });
 

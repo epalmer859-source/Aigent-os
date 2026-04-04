@@ -21,7 +21,6 @@
 import { z } from "zod";
 import {
   MAX_HISTORY_MESSAGES,
-  AI_DISCLOSURE_TEMPLATE,
   RESPONSE_FORMAT_INSTRUCTION,
   type PromptContext,
   type AssembledPrompt,
@@ -154,6 +153,20 @@ const GENERIC_PROHIBITIONS: string[] = [
   "Never share other customers' information.",
 ];
 
+// ── Scheduling availability rule ─────────────────────────────
+
+const SCHEDULING_AVAILABILITY_RULE = `-- SCHEDULING AVAILABILITY RULE (mandatory) --
+Whenever scheduling or availability comes up — whether you are starting to book, confirming timing, or the customer asks when you can come — you MUST present this exact list every time, word for word, before asking anything else about timing:
+
+"What availability works best for you?
+• Soonest available
+• Mornings only
+• Afternoons only
+• No preference
+• Anything specific we should know about your availability?"
+
+Do not paraphrase, shorten, or skip this list. Do not ask a vague question like "when works for you?" — always show the full list above.`;
+
 // ── Universal AI behavior rules ───────────────────────────────
 
 const UNIVERSAL_RULES = [
@@ -167,17 +180,18 @@ const UNIVERSAL_RULES = [
   "If you are uncertain about any detail, tell the customer you will check with the team.",
   "Respect STOP opt-out requests immediately and do not send further messages.",
   "Keep messages concise — no walls of text. Use plain, friendly language.",
+  "Never use emojis in any response under any circumstances.",
 ];
 
 // ── State-specific instructions ───────────────────────────────
 
 const STATE_INSTRUCTIONS: Record<string, string> = {
   new_lead:
-    "You are in intake mode. Collect: what service the customer needs, their address, and preferred scheduling time. Be warm and conversational. Your goal is to qualify the lead and hand off to booking.",
+    "You are in intake mode. Collect: what service the customer needs and their address. When it is time to ask about scheduling, follow the SCHEDULING AVAILABILITY RULE exactly — present the availability options list before asking anything else about timing.",
   lead_qualified:
-    "The lead is qualified. Continue gathering any missing details and move toward booking or quote. Ask about preferred timing if not already collected.",
+    "The lead is qualified. Continue gathering any missing details and move toward booking or quote. When timing comes up, follow the SCHEDULING AVAILABILITY RULE exactly.",
   booking_in_progress:
-    "You are helping schedule an appointment. Collect address and preferred time if not already provided. Confirm all details before submitting to the team for scheduling confirmation.",
+    "You are helping schedule an appointment. Collect address if not already provided. Follow the SCHEDULING AVAILABILITY RULE to ask about timing — present the exact options list. Confirm all details before submitting to the team.",
   quote_sent:
     "A quote has been sent to the customer. Follow up on their decision. Answer questions about the quote. Do not pressure — be helpful and let the quote speak for itself.",
   lead_followup_active:
@@ -234,7 +248,6 @@ function _buildLayer1(biz: BusinessConfigRecord): string {
 function _buildLayer2(
   conv: ConversationDataRecord,
   customer: CustomerDataRecord,
-  biz: BusinessConfigRecord,
 ): string {
   const lines: string[] = [
     "\n=== CONVERSATION CONTEXT ===",
@@ -255,16 +268,6 @@ function _buildLayer2(
     lines.push(`Still waiting for: ${conv.requestedDataFields.join(", ")}`);
   }
 
-  // AI disclosure check
-  if (customer.aiDisclosureSentAt === null) {
-    const disclosure = AI_DISCLOSURE_TEMPLATE
-      .replace("{signoff_name}", biz.signoffName)
-      .replace("{business_name}", biz.name);
-    lines.push(
-      `\nIMPORTANT: This is your first message to this customer. You MUST include the AI disclosure in your response: "${disclosure}"`,
-    );
-  }
-
   return lines.join("\n");
 }
 
@@ -279,6 +282,7 @@ function _buildLayer3(
     "\n=== RULES, CAPABILITIES, AND INSTRUCTIONS ===",
     "\n-- Universal AI Behavior Rules --",
     ...UNIVERSAL_RULES.map((r) => `• ${r}`),
+    `\n${SCHEDULING_AVAILABILITY_RULE}`,
     "\n-- Industry Capabilities --",
     ...capabilities.map((c) => `• ${c}`),
     "\n-- Industry Prohibitions --",
@@ -327,7 +331,7 @@ export async function assemblePrompt(context: PromptContext): Promise<AssembledP
 
   // Build all 4 layers
   const layer1 = _buildLayer1(biz);
-  const layer2 = _buildLayer2(conv, customer, biz);
+  const layer2 = _buildLayer2(conv, customer);
   const layer3Result = _buildLayer3(biz, conv);
   const layer4 = _buildLayer4();
 
@@ -470,7 +474,7 @@ async function _assemblePromptFromDb(context: PromptContext): Promise<AssembledP
 
   // Build all 4 layers.
   const layer1 = _buildLayer1(biz);
-  const layer2 = _buildLayer2(conv, customer, biz);
+  const layer2 = _buildLayer2(conv, customer);
   const layer3Result = _buildLayer3(biz, conv);
   const layer4 = _buildLayer4();
   const systemPrompt = [layer1, layer2, layer3Result.text, layer4].join("\n");
