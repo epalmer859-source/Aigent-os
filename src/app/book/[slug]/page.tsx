@@ -18,10 +18,7 @@ function formatHours(
     .filter((d) => d in hours)
     .map((day) => {
       const h = hours[day]!;
-      return {
-        day,
-        label: h.closed ? "Closed" : `${h.open} – ${h.close}`,
-      };
+      return { day, label: h.closed ? "Closed" : `${h.open} – ${h.close}` };
     });
 }
 
@@ -70,109 +67,231 @@ export default async function BookPage({
       preferred_phone_number: true,
       deleted_at: true,
       business_config: {
-        select: {
-          business_hours: true,
-          services_offered: true,
-        },
+        select: { business_hours: true, services_offered: true },
       },
     },
   });
 
   if (!row || row.deleted_at !== null) notFound();
 
-  const business = row!;
-
-  // Services — [{name, description?}]
-  const services = ensureArray(business.business_config?.services_offered).map((s) =>
+  const services = ensureArray(row.business_config?.services_offered).map((s) =>
     typeof s === "object" && s !== null
       ? (s as { name: string; description?: string })
       : { name: String(s) },
   );
 
-  // Hours
-  const hoursRaw = business.business_config?.business_hours;
+  const hoursRaw = row.business_config?.business_hours;
   const hours = formatHours(
     typeof hoursRaw === "object" && hoursRaw !== null
       ? (hoursRaw as Record<string, { open: string; close: string; closed: boolean }>)
       : null,
   );
 
+  const industryLabel = formatIndustry(row.industry as string);
+
   return (
-    <main className="min-h-screen bg-gray-50">
-      {/* Top bar */}
-      <div className="bg-gray-900 text-white">
-        <div className="mx-auto max-w-4xl px-4 py-5">
-          <p className="text-xs font-medium uppercase tracking-widest text-gray-400">
-            {formatIndustry(business.industry as string)}
-          </p>
-          <h1 className="mt-1 text-2xl font-bold">{business.business_name}</h1>
-          {business.preferred_phone_number && (
-            <a
-              href={`tel:${business.preferred_phone_number}`}
-              className="mt-1 inline-block text-sm text-gray-300 hover:text-white"
+    <main
+      className="relative min-h-screen overflow-hidden"
+      style={{ background: "#08090c" }}
+    >
+      {/* ── Ambient orbs ── */}
+      <div
+        className="animate-orb pointer-events-none absolute -top-40 -left-40 h-[600px] w-[600px] rounded-full opacity-20"
+        style={{
+          background:
+            "radial-gradient(circle at center, #3b82f6 0%, #6366f1 40%, transparent 70%)",
+          filter: "blur(80px)",
+        }}
+      />
+      <div
+        className="animate-orb-2 pointer-events-none absolute bottom-0 right-0 h-[500px] w-[500px] rounded-full opacity-10"
+        style={{
+          background:
+            "radial-gradient(circle at center, #8b5cf6 0%, #3b82f6 40%, transparent 70%)",
+          filter: "blur(100px)",
+        }}
+      />
+
+      {/* ── Noise texture overlay ── */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.025]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+        }}
+      />
+
+      {/* ── Grid lines ── */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.03]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)",
+          backgroundSize: "80px 80px",
+        }}
+      />
+
+      <div className="relative z-10 mx-auto max-w-5xl px-4 pb-20 pt-10">
+
+        {/* ── Header ── */}
+        <header className="mb-10 animate-fade-in-up">
+          <div className="flex items-center gap-2 mb-3">
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium tracking-widest uppercase"
+              style={{
+                background: "rgba(59,130,246,0.1)",
+                border: "1px solid rgba(59,130,246,0.2)",
+                color: "#60a5fa",
+              }}
             >
-              {business.preferred_phone_number}
+              <span
+                className="animate-dot-pulse h-1.5 w-1.5 rounded-full"
+                style={{ background: "#3b82f6" }}
+              />
+              {industryLabel}
+            </span>
+          </div>
+
+          <h1
+            className="text-4xl font-bold tracking-tight sm:text-5xl"
+            style={{ color: "#f4f4f5" }}
+          >
+            {row.business_name}
+          </h1>
+
+          {row.preferred_phone_number && (
+            <a
+              href={`tel:${row.preferred_phone_number}`}
+              className="mt-3 inline-flex items-center gap-2 text-sm transition-colors"
+              style={{ color: "#71717a" }}
+            >
+              <svg
+                width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              >
+                <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.79a19.79 19.79 0 01-3.07-8.63A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+              </svg>
+              {row.preferred_phone_number}
             </a>
           )}
-        </div>
-      </div>
 
-      {/* Content */}
-      <div className="mx-auto max-w-4xl px-4 py-8 grid gap-8 lg:grid-cols-[1fr_380px]">
+          {/* Divider */}
+          <div
+            className="mt-8 h-px w-full"
+            style={{
+              background:
+                "linear-gradient(90deg, transparent, rgba(255,255,255,0.08) 30%, rgba(255,255,255,0.08) 70%, transparent)",
+            }}
+          />
+        </header>
 
-        {/* Left — business info */}
-        <div className="space-y-6">
+        {/* ── Main grid ── */}
+        <div className="grid gap-8 lg:grid-cols-[1fr_400px]">
 
-          {/* Services */}
-          {services.length > 0 && (
-            <section>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">
-                Services
-              </h2>
-              <ul className="grid gap-2 sm:grid-cols-2">
-                {services.map((s, i) => (
-                  <li key={i} className="rounded-xl border border-gray-200 bg-white px-4 py-3">
-                    <p className="text-sm font-medium text-gray-900">{s.name}</p>
-                    {s.description && (
-                      <p className="mt-0.5 text-xs text-gray-500">{s.description}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          {/* ── Left — info panels ── */}
+          <div className="space-y-6">
 
-          {/* Hours */}
-          {hours.length > 0 && (
-            <section>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">
-                Hours
-              </h2>
-              <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-                {hours.map(({ day, label }, i) => (
-                  <div
-                    key={day}
-                    className={`flex justify-between px-4 py-2.5 text-sm ${
-                      i < hours.length - 1 ? "border-b border-gray-100" : ""
-                    }`}
-                  >
-                    <span className="font-medium text-gray-700">{day}</span>
-                    <span className={label === "Closed" ? "text-gray-400" : "text-gray-900"}>
-                      {label}
-                    </span>
-                  </div>
-                ))}
+            {/* Services */}
+            {services.length > 0 && (
+              <section className="animate-fade-in-up" style={{ animationDelay: "0.1s" }}>
+                <p
+                  className="mb-4 text-xs font-semibold uppercase tracking-[0.2em]"
+                  style={{ color: "#52525b" }}
+                >
+                  Services
+                </p>
+                <ul className="grid gap-2.5 sm:grid-cols-2">
+                  {services.map((s, i) => (
+                    <li
+                      key={i}
+                      className="glass card-hover group relative overflow-hidden rounded-2xl p-4"
+                    >
+                      {/* Subtle left accent */}
+                      <div
+                        className="absolute left-0 top-0 h-full w-[2px] rounded-l-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                        style={{
+                          background: "linear-gradient(180deg, #3b82f6, #6366f1)",
+                        }}
+                      />
+                      <p className="text-sm font-medium" style={{ color: "#e4e4e7" }}>
+                        {s.name}
+                      </p>
+                      {s.description && (
+                        <p className="mt-1 text-xs leading-relaxed" style={{ color: "#52525b" }}>
+                          {s.description}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Hours */}
+            {hours.length > 0 && (
+              <section className="animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
+                <p
+                  className="mb-4 text-xs font-semibold uppercase tracking-[0.2em]"
+                  style={{ color: "#52525b" }}
+                >
+                  Hours
+                </p>
+                <div className="glass rounded-2xl overflow-hidden">
+                  {hours.map(({ day, label }, i) => (
+                    <div
+                      key={day}
+                      className="flex items-center justify-between px-5 py-3 transition-colors hover:bg-white/[0.02]"
+                      style={{
+                        borderBottom: i < hours.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none",
+                      }}
+                    >
+                      <span className="text-sm font-medium" style={{ color: "#a1a1aa" }}>
+                        {day}
+                      </span>
+                      <span
+                        className="text-sm font-medium tabular-nums"
+                        style={{ color: label === "Closed" ? "#3f3f46" : "#e4e4e7" }}
+                      >
+                        {label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Trust badge */}
+            <div
+              className="animate-fade-in-up flex items-center gap-3 rounded-2xl px-5 py-4"
+              style={{
+                animationDelay: "0.3s",
+                background: "rgba(59,130,246,0.04)",
+                border: "1px solid rgba(59,130,246,0.1)",
+              }}
+            >
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+                style={{ background: "rgba(59,130,246,0.15)" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
               </div>
-            </section>
-          )}
-        </div>
+              <p className="text-xs leading-relaxed" style={{ color: "#71717a" }}>
+                Your information is private and secure. We never share your data with third parties.
+              </p>
+            </div>
+          </div>
 
-        {/* Right — chat widget */}
-        <div className="lg:sticky lg:top-8 lg:self-start">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">
-            Get a Quote or Book
-          </h2>
-          <ChatWidget businessId={business.id} />
+          {/* ── Right — chat widget ── */}
+          <div className="animate-fade-in-up lg:sticky lg:top-8 lg:self-start" style={{ animationDelay: "0.15s" }}>
+            <p
+              className="mb-4 text-xs font-semibold uppercase tracking-[0.2em]"
+              style={{ color: "#52525b" }}
+            >
+              Chat with us
+            </p>
+            <ChatWidget businessId={row.id} businessName={row.business_name} />
+          </div>
         </div>
       </div>
     </main>
