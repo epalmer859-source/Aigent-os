@@ -162,7 +162,7 @@ export default async function BookPage({
             <a
               href={`tel:${row.preferred_phone_number}`}
               className="mt-3 inline-flex items-center gap-2 text-sm transition-colors"
-              style={{ color: "#71717a" }}
+              style={{ color: "#a1a1aa" }}
             >
               <svg
                 width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -195,7 +195,7 @@ export default async function BookPage({
               <section className="animate-fade-in-up" style={{ animationDelay: "0.1s" }}>
                 <p
                   className="mb-4 text-xs font-semibold uppercase tracking-[0.2em]"
-                  style={{ color: "#52525b" }}
+                  style={{ color: "#a1a1aa" }}
                 >
                   Services
                 </p>
@@ -216,7 +216,7 @@ export default async function BookPage({
                         {s.name}
                       </p>
                       {s.description && (
-                        <p className="mt-1 text-xs leading-relaxed" style={{ color: "#52525b" }}>
+                        <p className="mt-1 text-xs leading-relaxed" style={{ color: "#a1a1aa" }}>
                           {s.description}
                         </p>
                       )}
@@ -231,7 +231,7 @@ export default async function BookPage({
               <section className="animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
                 <p
                   className="mb-4 text-xs font-semibold uppercase tracking-[0.2em]"
-                  style={{ color: "#52525b" }}
+                  style={{ color: "#a1a1aa" }}
                 >
                   Hours
                 </p>
@@ -249,7 +249,7 @@ export default async function BookPage({
                       </span>
                       <span
                         className="text-sm font-medium tabular-nums"
-                        style={{ color: label === "Closed" ? "#3f3f46" : "#e4e4e7" }}
+                        style={{ color: label === "Closed" ? "#71717a" : "#e4e4e7" }}
                       >
                         {label}
                       </span>
@@ -276,7 +276,7 @@ export default async function BookPage({
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                 </svg>
               </div>
-              <p className="text-xs leading-relaxed" style={{ color: "#71717a" }}>
+              <p className="text-xs leading-relaxed" style={{ color: "#a1a1aa" }}>
                 Your information is private and secure. We never share your data with third parties.
               </p>
             </div>
@@ -286,7 +286,7 @@ export default async function BookPage({
           <div className="animate-fade-in-up lg:sticky lg:top-8 lg:self-start" style={{ animationDelay: "0.15s" }}>
             <p
               className="mb-4 text-xs font-semibold uppercase tracking-[0.2em]"
-              style={{ color: "#52525b" }}
+              style={{ color: "#a1a1aa" }}
             >
               Chat with us
             </p>

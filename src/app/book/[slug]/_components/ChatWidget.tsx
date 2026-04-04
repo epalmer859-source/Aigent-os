@@ -154,7 +154,7 @@ export default function ChatWidget({ businessId, businessName }: ChatWidgetProps
           <p className="text-sm font-semibold" style={{ color: "#f4f4f5" }}>
             {businessName}
           </p>
-          <p className="text-xs" style={{ color: "#52525b" }}>
+          <p className="text-xs" style={{ color: "#a1a1aa" }}>
             AI assistant &middot; replies instantly
           </p>
         </div>
@@ -196,7 +196,7 @@ export default function ChatWidget({ businessId, businessName }: ChatWidgetProps
               <p className="text-sm font-medium" style={{ color: "#a1a1aa" }}>
                 How can we help?
               </p>
-              <p className="mt-1 text-xs" style={{ color: "#3f3f46" }}>
+              <p className="mt-1 text-xs" style={{ color: "#71717a" }}>
                 Ask about services, pricing, or availability.
               </p>
             </div>
@@ -268,9 +268,9 @@ export default function ChatWidget({ businessId, businessName }: ChatWidgetProps
                 borderBottomLeftRadius: "4px",
               }}
             >
-              <span className="typing-dot h-1.5 w-1.5 rounded-full" style={{ background: "#52525b" }} />
-              <span className="typing-dot h-1.5 w-1.5 rounded-full" style={{ background: "#52525b" }} />
-              <span className="typing-dot h-1.5 w-1.5 rounded-full" style={{ background: "#52525b" }} />
+              <span className="typing-dot h-1.5 w-1.5 rounded-full" style={{ background: "#71717a" }} />
+              <span className="typing-dot h-1.5 w-1.5 rounded-full" style={{ background: "#71717a" }} />
+              <span className="typing-dot h-1.5 w-1.5 rounded-full" style={{ background: "#71717a" }} />
             </div>
           </div>
         )}
@@ -324,7 +324,7 @@ export default function ChatWidget({ businessId, businessName }: ChatWidgetProps
           </button>
         </div>
 
-        <p className="mt-2 text-center text-[10px]" style={{ color: "#3f3f46" }}>
+        <p className="mt-2 text-center text-[10px]" style={{ color: "#71717a" }}>
           Powered by AIgent OS &middot; Replies are AI-generated
         </p>
       </div>
