@@ -286,50 +286,68 @@ function LanguagePicker({
 interface DayHours { open: string; close: string; closed: boolean }
 
 function HoursEditor({ value, onChange }: { value: Record<string, DayHours>; onChange: (v: Record<string, DayHours>) => void }) {
-  const timeInputStyle = {
+  const timeInputStyle: React.CSSProperties = {
     background: "var(--input-bg)",
     border: "1px solid var(--input-border)",
     color: "var(--t1)",
     outline: "none",
-    borderRadius: "6px",
-    padding: "4px 8px",
-    fontSize: "12px",
+    borderRadius: "8px",
+    padding: "6px 10px",
+    fontSize: "13px",
+    width: "120px",
+    colorScheme: "inherit",
   };
 
   return (
-    <div className="space-y-2">
-      {DAYS.map((day) => {
+    <div className="overflow-hidden rounded-xl" style={{ border: "1px solid var(--border)" }}>
+      {DAYS.map((day, i) => {
         const h: DayHours = value[day] ?? { open: "08:00", close: "17:00", closed: false };
+        const isLast = i === DAYS.length - 1;
         return (
-          <div key={day} className="flex items-center gap-3">
-            <span className="w-24 shrink-0 text-xs font-medium capitalize" style={{ color: "var(--t2)" }}>
+          <div
+            key={day}
+            className="flex flex-wrap items-center gap-3 px-4 py-3"
+            style={{
+              borderBottom: isLast ? "none" : "1px solid var(--border)",
+              background: i % 2 === 0 ? "transparent" : "var(--bg-hover)",
+            }}
+          >
+            {/* Day name */}
+            <span className="w-24 shrink-0 text-sm font-medium capitalize" style={{ color: "var(--t1)" }}>
               {day}
             </span>
-            <input
-              type="checkbox"
-              checked={!h.closed}
-              onChange={(e) => onChange({ ...value, [day]: { ...h, closed: !e.target.checked } })}
-              className="h-3.5 w-3.5"
-              style={{ accentColor: "var(--accent)" }}
-            />
+
+            {/* Open / Closed pill toggle */}
+            <button
+              type="button"
+              onClick={() => onChange({ ...value, [day]: { ...h, closed: !h.closed } })}
+              className="rounded-full px-3 py-1 text-xs font-semibold transition-all duration-150"
+              style={h.closed
+                ? { background: "var(--bg-elevated)", color: "var(--t3)", border: "1px solid var(--border)" }
+                : { background: "rgba(34,197,94,0.12)", color: "#4ade80", border: "1px solid rgba(34,197,94,0.25)" }
+              }
+            >
+              {h.closed ? "Closed" : "Open"}
+            </button>
+
+            {/* Time range */}
             {!h.closed && (
-              <>
+              <div className="flex items-center gap-2">
                 <input
                   type="time"
                   value={h.open}
                   onChange={(e) => onChange({ ...value, [day]: { ...h, open: e.target.value } })}
                   style={timeInputStyle}
                 />
-                <span className="text-xs" style={{ color: "var(--t3)" }}>–</span>
+                <span className="text-sm font-medium" style={{ color: "var(--t3)" }}>to</span>
                 <input
                   type="time"
                   value={h.close}
                   onChange={(e) => onChange({ ...value, [day]: { ...h, close: e.target.value } })}
                   style={timeInputStyle}
                 />
-              </>
+              </div>
             )}
-            {h.closed && <span className="text-xs" style={{ color: "var(--t3)" }}>Closed</span>}
           </div>
         );
       })}
