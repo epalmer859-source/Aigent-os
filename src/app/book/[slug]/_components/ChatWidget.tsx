@@ -11,6 +11,7 @@ interface WebChatApiResponse {
   success: boolean;
   sessionToken: string;
   aiReplyText?: string;
+  showAddressForm?: boolean;
   error?: string;
 }
 
@@ -19,7 +20,6 @@ interface ChatWidgetProps {
   businessName: string;
 }
 
-const ADDRESS_FORM_MARKER = "{{ADDRESS_FORM}}";
 
 function SendIcon() {
   return (
@@ -187,11 +187,8 @@ export default function ChatWidget({ businessId, businessName }: ChatWidgetProps
       if (data.sessionToken) setSessionToken(data.sessionToken);
 
       if (data.success && data.aiReplyText) {
-        const raw = data.aiReplyText;
-        const hasForm = raw.includes(ADDRESS_FORM_MARKER);
-        const displayText = raw.replace(ADDRESS_FORM_MARKER, "").trim();
-        setMessages((prev) => [...prev, { role: "assistant", text: displayText }]);
-        if (hasForm) setShowAddressForm(true);
+        setMessages((prev) => [...prev, { role: "assistant", text: data.aiReplyText! }]);
+        if (data.showAddressForm) setShowAddressForm(true);
       } else if (!data.success) {
         setMessages((prev) => [
           ...prev,

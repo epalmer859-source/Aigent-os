@@ -36,6 +36,10 @@ export interface WebChatResponse {
    * Generated synchronously so the widget can display it immediately.
    */
   aiReplyText?: string;
+  /**
+   * True when the AI wants the widget to render an inline address form.
+   */
+  showAddressForm?: boolean;
 }
 
 // ── Session shape ─────────────────────────────────────────────
@@ -73,6 +77,7 @@ export interface WebChatInboundResult {
   messageId?: string;
   error?: string;
   aiReplyText?: string;
+  showAddressForm?: boolean;
 }
 
 /**

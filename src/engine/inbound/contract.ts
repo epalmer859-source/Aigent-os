@@ -67,6 +67,11 @@ export interface InboundResult {
    * rather than via the queue worker.
    */
   aiReplyText?: string;
+  /**
+   * True when the AI wants the web chat widget to render an inline address form.
+   * Only set for web_chat channel.
+   */
+  showAddressForm?: boolean;
 }
 
 // ── STOP / START keyword sets ─────────────────────────────────

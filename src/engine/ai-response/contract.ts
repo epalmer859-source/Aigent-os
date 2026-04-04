@@ -60,6 +60,11 @@ export interface AIDecision {
    * Signals that the AI disclosure text must be included in response_text.
    */
   is_first_message: boolean;
+  /**
+   * True when the AI is asking for the customer's address and the web chat
+   * should render an inline address form (Street / City / State / Zip).
+   */
+  show_address_form?: boolean;
 }
 
 // ── Input / output shapes ─────────────────────────────────────

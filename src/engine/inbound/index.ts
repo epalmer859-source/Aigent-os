@@ -687,6 +687,7 @@ async function _handleInboundMessageFromDb(
         stateChanged,
         newState,
         aiReplyText: aiResult.decision?.responseText ?? aiResult.decision?.response_text ?? FALLBACK_RESPONSE,
+        showAddressForm: aiResult.decision?.show_address_form === true,
       };
     } else {
       // SMS / email / voice: enqueue for the queue worker to process asynchronously.

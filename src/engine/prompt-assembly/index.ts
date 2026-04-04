@@ -189,11 +189,11 @@ const UNIVERSAL_RULES = [
 
 const STATE_INSTRUCTIONS: Record<string, string> = {
   new_lead:
-    "You are in intake mode. Follow this exact collection order: (1) full name and a number we can reach them at — ask for both together in one message if not already provided; (2) what service they need; (3) their address — when asking for address, append {{ADDRESS_FORM}} on its own line at the very end of your message so the customer can fill in a structured form. Do not move to the next step until the current one is complete. When it is time to ask about scheduling, follow the SCHEDULING AVAILABILITY RULE exactly.",
+    "You are in intake mode. Follow this exact collection order: (1) full name and a number we can reach them at — ask for both together in one message if not already provided; (2) what service they need; (3) their address — set show_address_form to true in your JSON response when asking for the address. Do not move to the next step until the current one is complete. When it is time to ask about scheduling, follow the SCHEDULING AVAILABILITY RULE exactly.",
   lead_qualified:
     "The lead is qualified. Continue gathering any missing details and move toward booking or quote. When timing comes up, follow the SCHEDULING AVAILABILITY RULE exactly.",
   booking_in_progress:
-    "You are helping schedule an appointment. If the address has not been collected yet, ask for it — end that message with {{ADDRESS_FORM}} on its own line so the customer fills in a structured form. Follow the SCHEDULING AVAILABILITY RULE to ask about timing. Do NOT recap or list out what you have collected at any point during intake — just keep the conversation moving naturally. Once you have all five: name, phone, service, address, and availability preference — follow this exact closing sequence: (1) Tell the customer their information has been sent to the team so they can find the best possible appointment. (2) Confirm everything back to them as a clean summary. (3) Ask if there is anything else or any changes. Now apply this two-ask rule — If the customer directly confirms nothing more (e.g. 'nope', 'all good', 'that is everything') → immediately set bookingConfirmed to true and send a warm close such as 'Perfect! We will text you at your number as soon as possible.' — If the customer does not directly address the question (neutral reply, off-topic, unclear) → handle what they said, then ask ONE final time: 'Anything else before I get this to the team?' — After that second ask: if there is no new direct request or question → set bookingConfirmed to true and send the warm close. Do not ask a third time under any circumstance.",
+    "You are helping schedule an appointment. If the address has not been collected yet, ask for it and set show_address_form to true in your JSON response. Follow the SCHEDULING AVAILABILITY RULE to ask about timing. Do NOT recap anything mid-conversation. Once you have all five: name, phone, service, address, and availability preference — (1) Tell the customer their information has been sent to the team to find the best possible appointment. (2) Confirm everything in one clean summary. (3) Ask once if there is anything else or any changes. If they say no or confirm everything is good, close warmly — something like 'Perfect! We will text you at your number as soon as possible.' — then set bookingConfirmed to true. If they have a change, handle it and close after. Do not ask again or confirm again after closing.",
   quote_sent:
     "A quote has been sent to the customer. Follow up on their decision. Answer questions about the quote. Do not pressure — be helpful and let the quote speak for itself.",
   lead_followup_active:
@@ -228,7 +228,8 @@ const AI_DECISION_SCHEMA = `
   "bookingConfirmed": "boolean — set to true ONLY when the customer has explicitly confirmed everything and there is nothing else. Triggers the scheduling request and confirmation text. Do not set prematurely.",
   "collected_name": "string | null — the customer's full name if provided this turn, otherwise null",
   "collected_phone": "string | null — the customer's phone number if provided this turn, otherwise null",
-  "availability_preference": "string | null — scheduling preference if collected this turn (e.g. 'Soonest available', 'Mornings only'), otherwise null"
+  "availability_preference": "string | null — scheduling preference if collected this turn (e.g. 'Soonest available', 'Mornings only'), otherwise null",
+  "show_address_form": "boolean — set to true ONLY when you are asking the customer to provide their address. The web chat will display a structured form. Set to false at all other times."
 }`;
 
 // ── Layer builders ────────────────────────────────────────────
