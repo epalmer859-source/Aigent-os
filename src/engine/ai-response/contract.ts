@@ -22,6 +22,8 @@
 export interface AIDecision {
   /** Customer-facing message text to send. */
   response_text: string;
+  /** Alias used by some Claude model versions (camelCase). Prefer response_text when present. */
+  responseText?: string;
   /** Target state for a transition, or null if no change proposed. */
   proposed_state_change: string | null;
   /** True if a human should take over this conversation. */

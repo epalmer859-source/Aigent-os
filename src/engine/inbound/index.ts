@@ -685,7 +685,7 @@ async function _handleInboundMessageFromDb(
         aiResponseQueued,
         stateChanged,
         newState,
-        aiReplyText: aiResult.decision?.response_text ?? FALLBACK_RESPONSE,
+        aiReplyText: aiResult.decision?.responseText ?? aiResult.decision?.response_text ?? FALLBACK_RESPONSE,
       };
     } else {
       // SMS / email / voice: enqueue for the queue worker to process asynchronously.
