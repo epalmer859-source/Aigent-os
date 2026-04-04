@@ -5,6 +5,91 @@
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
+/* ═══════════════════════════════════════════════════════════
+   DESIGN TOKENS — dark (default) / light (html.light class)
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  /* Backgrounds */
+  --bg:           #0c0e15;
+  --bg-surface:   #131720;
+  --bg-elevated:  #1b2030;
+  --bg-hover:     rgba(255,255,255,0.04);
+  --bg-active:    rgba(59,130,246,0.10);
+
+  /* Borders */
+  --border:       rgba(255,255,255,0.07);
+  --border-strong:rgba(255,255,255,0.13);
+
+  /* Sidebar */
+  --sidebar-bg:   #0f1118;
+  --sidebar-border:rgba(255,255,255,0.06);
+
+  /* Text */
+  --t1: #f4f4f5;
+  --t2: #a1a1aa;
+  --t3: #71717a;
+
+  /* Accent */
+  --accent:       #3b82f6;
+  --accent-dim:   rgba(59,130,246,0.12);
+  --accent-text:  #60a5fa;
+
+  /* Input */
+  --input-bg:     rgba(255,255,255,0.04);
+  --input-border: rgba(255,255,255,0.10);
+
+  /* Skeleton */
+  --skeleton:     rgba(255,255,255,0.06);
+  --skeleton-hi:  rgba(255,255,255,0.10);
+}
+
+html.light {
+  --bg:           #f0f2f7;
+  --bg-surface:   #ffffff;
+  --bg-elevated:  #f7f8fc;
+  --bg-hover:     rgba(0,0,0,0.03);
+  --bg-active:    rgba(37,99,235,0.07);
+
+  --border:       rgba(0,0,0,0.08);
+  --border-strong:rgba(0,0,0,0.14);
+
+  --sidebar-bg:   #ffffff;
+  --sidebar-border:rgba(0,0,0,0.07);
+
+  --t1: #0f172a;
+  --t2: #4b5563;
+  --t3: #9ca3af;
+
+  --accent:       #2563eb;
+  --accent-dim:   rgba(37,99,235,0.08);
+  --accent-text:  #2563eb;
+
+  --input-bg:     #ffffff;
+  --input-border: rgba(0,0,0,0.14);
+
+  --skeleton:     rgba(0,0,0,0.07);
+  --skeleton-hi:  rgba(0,0,0,0.11);
+}
+
+/* ── Utility classes ── */
+.t-bg       { background-color: var(--bg); }
+.t-surface  { background-color: var(--bg-surface); }
+.t-elevated { background-color: var(--bg-elevated); }
+.t-border   { border-color: var(--border); }
+.t-text1    { color: var(--t1); }
+.t-text2    { color: var(--t2); }
+.t-text3    { color: var(--t3); }
+
+/* ── Sidebar scrollbar ── */
+.sidebar-scroll::-webkit-scrollbar { width: 0; }
+
+/* ── Page content scrollbar ── */
+.content-scroll::-webkit-scrollbar { width: 6px; }
+.content-scroll::-webkit-scrollbar-track { background: transparent; }
+.content-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+.content-scroll::-webkit-scrollbar-thumb:hover { background: var(--t3); }
+
 /* ── Glow breathe — hero background pulse ── */
 @keyframes glow-breathe {
   0%, 100% { opacity: 0.6; transform: scale(1); }

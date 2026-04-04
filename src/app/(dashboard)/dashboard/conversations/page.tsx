@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────
+
 const STATE_OPTIONS = [
-  { value: "", label: "All" },
+  { value: "", label: "All states" },
   { value: "new_lead", label: "New Lead" },
   { value: "booking_in_progress", label: "Booking" },
   { value: "quote_sent", label: "Quote Sent" },
@@ -16,32 +17,33 @@ const STATE_OPTIONS = [
   { value: "closed_completed", label: "Closed" },
 ] as const;
 
-const CHANNEL_ICONS: Record<string, string> = {
-  sms: "💬",
-  email: "📧",
-  voice: "📞",
-  webchat: "🌐",
-  whatsapp: "📱",
+const CHANNEL_INITIALS: Record<string, string> = {
+  sms: "SM",
+  email: "EM",
+  voice: "VC",
+  web_chat: "WC",
+  whatsapp: "WA",
 };
 
-const STATE_COLORS: Record<string, string> = {
-  new_lead: "bg-blue-100 text-blue-800",
-  booking_in_progress: "bg-indigo-100 text-indigo-800",
-  quote_sent: "bg-yellow-100 text-yellow-800",
-  job_in_progress: "bg-orange-100 text-orange-800",
-  human_takeover_active: "bg-purple-100 text-purple-800",
-  resolved: "bg-green-100 text-green-800",
-  closed_completed: "bg-gray-100 text-gray-700",
+// State badge colors — semantic, same in both modes
+const STATE_BADGE: Record<string, { bg: string; text: string }> = {
+  new_lead:             { bg: "rgba(59,130,246,0.12)",  text: "#60a5fa"  },
+  booking_in_progress:  { bg: "rgba(99,102,241,0.12)",  text: "#818cf8"  },
+  quote_sent:           { bg: "rgba(234,179,8,0.12)",   text: "#facc15"  },
+  job_in_progress:      { bg: "rgba(249,115,22,0.12)",  text: "#fb923c"  },
+  human_takeover_active:{ bg: "rgba(168,85,247,0.12)",  text: "#c084fc"  },
+  resolved:             { bg: "rgba(34,197,94,0.12)",   text: "#4ade80"  },
+  closed_completed:     { bg: "rgba(113,113,122,0.12)", text: "#a1a1aa"  },
 };
 
-function stateBadge(state: string) {
-  const color = STATE_COLORS[state] ?? "bg-gray-100 text-gray-700";
-  const label = state.replace(/_/g, " ");
+function StateBadge({ state }: { state: string }) {
+  const style = STATE_BADGE[state] ?? { bg: "rgba(113,113,122,0.12)", text: "#a1a1aa" };
   return (
     <span
-      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${color}`}
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium capitalize"
+      style={{ background: style.bg, color: style.text }}
     >
-      {label}
+      {state.replace(/_/g, " ")}
     </span>
   );
 }
@@ -50,27 +52,32 @@ function timeAgo(date: Date | string | null | undefined): string {
   if (!date) return "";
   const ms = Date.now() - new Date(date).getTime();
   const min = Math.round(ms / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
+  if (min < 1) return "now";
+  if (min < 60) return `${min}m`;
   const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.round(hr / 24)}d ago`;
+  if (hr < 24) return `${hr}h`;
+  return `${Math.round(hr / 24)}d`;
 }
 
 // ── Skeleton ───────────────────────────────────────────────────────────────
+
 function RowSkeleton() {
   return (
-    <div className="animate-pulse flex gap-3 border-b border-gray-100 p-4">
-      <div className="mt-1 h-8 w-8 rounded-full bg-gray-200" />
-      <div className="flex-1 space-y-2">
-        <div className="h-4 w-1/3 rounded bg-gray-200" />
-        <div className="h-3 w-2/3 rounded bg-gray-200" />
+    <div
+      className="flex animate-pulse gap-3 px-4 py-3.5"
+      style={{ borderBottom: "1px solid var(--border)" }}
+    >
+      <div className="mt-0.5 h-9 w-9 rounded-full shrink-0" style={{ background: "var(--skeleton)" }} />
+      <div className="flex-1 space-y-2 py-0.5">
+        <div className="h-3.5 w-1/3 rounded-md" style={{ background: "var(--skeleton)" }} />
+        <div className="h-3 w-2/3 rounded-md" style={{ background: "var(--skeleton)" }} />
       </div>
     </div>
   );
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
+
 export default function ConversationsPage() {
   const router = useRouter();
   const [searchInput, setSearchInput] = useState("");
@@ -78,36 +85,27 @@ export default function ConversationsPage() {
   const [status, setStatus] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Debounce search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setSearch(searchInput), 300);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [searchInput]);
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     api.conversations.list.useInfiniteQuery(
       { limit: 25, search: search || undefined, status: status || undefined },
-      {
-        getNextPageParam: (lastPage) => lastPage.nextCursor,
-        refetchInterval: 10_000,
-      },
+      { getNextPageParam: (lastPage) => lastPage.nextCursor, refetchInterval: 10_000 },
     );
 
   const allItems = data?.pages.flatMap((p) => p.items) ?? [];
 
-  // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
-          void fetchNextPage();
-        }
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) void fetchNextPage();
       },
       { threshold: 0.1 },
     );
@@ -115,21 +113,45 @@ export default function ConversationsPage() {
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  const inputStyle = {
+    background: "var(--input-bg)",
+    border: "1px solid var(--input-border)",
+    color: "var(--t1)",
+    outline: "none",
+  };
+
   return (
-    <div className="flex h-[calc(100vh-8rem)] flex-col rounded-xl border border-gray-200 bg-white">
+    <div className="mx-auto flex h-[calc(100dvh-4rem)] max-w-3xl flex-col overflow-hidden rounded-2xl"
+      style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}
+    >
+      {/* Page heading */}
+      <div
+        className="shrink-0 px-5 py-4"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
+        <h1 className="text-base font-semibold" style={{ color: "var(--t1)" }}>
+          Conversations
+        </h1>
+      </div>
+
       {/* Toolbar */}
-      <div className="flex flex-col gap-2 border-b border-gray-100 p-3 sm:flex-row">
+      <div
+        className="flex shrink-0 flex-col gap-2 px-4 py-3 sm:flex-row"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
         <input
           type="search"
           placeholder="Search by name or contact…"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+          className="flex-1 rounded-lg px-3 py-2 text-sm"
+          style={inputStyle}
         />
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          className="rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+          className="rounded-lg px-3 py-2 text-sm"
+          style={{ ...inputStyle, minWidth: "140px" }}
         >
           {STATE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -140,53 +162,54 @@ export default function ConversationsPage() {
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="content-scroll flex-1 overflow-y-auto">
         {isLoading ? (
           <>
-            <RowSkeleton />
-            <RowSkeleton />
-            <RowSkeleton />
-            <RowSkeleton />
+            <RowSkeleton /><RowSkeleton /><RowSkeleton /><RowSkeleton />
           </>
         ) : allItems.length === 0 ? (
-          <p className="p-8 text-center text-sm text-gray-400">
-            No conversations found
-          </p>
+          <div className="flex flex-col items-center justify-center py-16">
+            <p className="text-sm" style={{ color: "var(--t3)" }}>No conversations found</p>
+          </div>
         ) : (
           <>
             {allItems.map((conv) => {
-              const name =
-                conv.contact_display_name ?? conv.contact_handle ?? "Unknown";
-              const icon = CHANNEL_ICONS[conv.channel] ?? "💬";
+              const name = conv.contact_display_name ?? conv.contact_handle ?? "Unknown";
+              const initials = CHANNEL_INITIALS[conv.channel] ?? "??";
               return (
                 <button
                   key={conv.id}
-                  onClick={() =>
-                    router.push(`/dashboard/conversations/${conv.id}`)
-                  }
-                  className="flex w-full items-start gap-3 border-b border-gray-100 p-4 text-left transition hover:bg-gray-50 active:bg-gray-100"
+                  onClick={() => router.push(`/dashboard/conversations/${conv.id}`)}
+                  className="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors duration-100"
+                  style={{ borderBottom: "1px solid var(--border)" }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--bg-hover)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                 >
-                  {/* Avatar / channel icon */}
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-lg">
-                    {icon}
+                  {/* Avatar */}
+                  <div
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                    style={{ background: "linear-gradient(135deg, #3b82f6, #6366f1)" }}
+                  >
+                    {initials}
                   </div>
+
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-gray-900">
+                      <span className="truncate text-sm font-medium" style={{ color: "var(--t1)" }}>
                         {name}
                       </span>
-                      <span className="shrink-0 text-xs text-gray-400">
+                      <span className="shrink-0 text-xs tabular-nums" style={{ color: "var(--t3)" }}>
                         {timeAgo(conv.last_customer_message_at ?? conv.updated_at)}
                       </span>
                     </div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      {stateBadge(conv.primary_state)}
-                      <span className="text-xs capitalize text-gray-400">
+                    <div className="mt-1 flex items-center gap-2">
+                      <StateBadge state={conv.primary_state} />
+                      <span className="text-xs capitalize" style={{ color: "var(--t3)" }}>
                         {conv.current_owner}
                       </span>
                     </div>
                     {conv.preview && (
-                      <p className="mt-1 truncate text-xs text-gray-500">
+                      <p className="mt-1 truncate text-xs" style={{ color: "var(--t3)" }}>
                         {conv.preview}
                       </p>
                     )}
@@ -194,12 +217,9 @@ export default function ConversationsPage() {
                 </button>
               );
             })}
-            {/* Infinite scroll sentinel */}
             <div ref={sentinelRef} className="h-4" />
             {isFetchingNextPage && (
-              <p className="py-3 text-center text-xs text-gray-400">
-                Loading more…
-              </p>
+              <p className="py-3 text-center text-xs" style={{ color: "var(--t3)" }}>Loading more…</p>
             )}
           </>
         )}
