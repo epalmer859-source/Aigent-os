@@ -211,6 +211,13 @@ html {
   scroll-behavior: smooth;
 }
 
+/* ── Native form controls inherit color-scheme so OS popup matches mode ── */
+select,
+input,
+textarea {
+  color-scheme: inherit;
+}
+
 /* ── Chat message pop-in ── */
 @keyframes msg-in {
   from { opacity: 0; transform: translateY(8px) scale(0.97); }

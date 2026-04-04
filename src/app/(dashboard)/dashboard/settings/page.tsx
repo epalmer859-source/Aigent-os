@@ -89,6 +89,7 @@ const INPUT_STYLE = {
   width: "100%",
   padding: "8px 12px",
   fontSize: "13px",
+  colorScheme: "inherit",
 } as const;
 
 const SELECT_STYLE = {
@@ -285,19 +286,36 @@ function LanguagePicker({
 // ── HoursEditor ────────────────────────────────────────────────────────────
 interface DayHours { open: string; close: string; closed: boolean }
 
-function HoursEditor({ value, onChange }: { value: Record<string, DayHours>; onChange: (v: Record<string, DayHours>) => void }) {
-  const timeInputStyle: React.CSSProperties = {
-    background: "var(--input-bg)",
-    border: "1px solid var(--input-border)",
-    color: "var(--t1)",
-    outline: "none",
-    borderRadius: "8px",
-    padding: "6px 10px",
-    fontSize: "13px",
-    width: "120px",
-    colorScheme: "inherit",
-  };
+// Generate 30-min slot options: "00:00" → "23:30"
+const TIME_SLOTS: { value: string; label: string }[] = Array.from({ length: 48 }, (_, i) => {
+  const totalMin = i * 30;
+  const h24 = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  const value = `${String(h24).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  const ampm = h24 < 12 ? "AM" : "PM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  const label = `${h12}:${String(min).padStart(2, "0")} ${ampm}`;
+  return { value, label };
+});
 
+const DAY_ABBR: Record<string, string> = {
+  monday: "Mon", tuesday: "Tue", wednesday: "Wed", thursday: "Thu",
+  friday: "Fri", saturday: "Sat", sunday: "Sun",
+};
+
+const timeSelectStyle: React.CSSProperties = {
+  background: "var(--input-bg)",
+  border: "1px solid var(--input-border)",
+  color: "var(--t1)",
+  outline: "none",
+  borderRadius: "8px",
+  padding: "6px 8px",
+  fontSize: "13px",
+  cursor: "pointer",
+  colorScheme: "inherit",
+};
+
+function HoursEditor({ value, onChange }: { value: Record<string, DayHours>; onChange: (v: Record<string, DayHours>) => void }) {
   return (
     <div className="overflow-hidden rounded-xl" style={{ border: "1px solid var(--border)" }}>
       {DAYS.map((day, i) => {
@@ -309,19 +327,19 @@ function HoursEditor({ value, onChange }: { value: Record<string, DayHours>; onC
             className="flex flex-wrap items-center gap-3 px-4 py-3"
             style={{
               borderBottom: isLast ? "none" : "1px solid var(--border)",
-              background: i % 2 === 0 ? "transparent" : "var(--bg-hover)",
+              background: h.closed ? "transparent" : "var(--bg-hover)",
             }}
           >
-            {/* Day name */}
-            <span className="w-24 shrink-0 text-sm font-medium capitalize" style={{ color: "var(--t1)" }}>
-              {day}
+            {/* Day label */}
+            <span className="w-8 shrink-0 text-sm font-semibold" style={{ color: "var(--t1)" }}>
+              {DAY_ABBR[day]}
             </span>
 
-            {/* Open / Closed pill toggle */}
+            {/* Open / Closed toggle */}
             <button
               type="button"
               onClick={() => onChange({ ...value, [day]: { ...h, closed: !h.closed } })}
-              className="rounded-full px-3 py-1 text-xs font-semibold transition-all duration-150"
+              className="w-16 rounded-lg py-1.5 text-xs font-semibold transition-all duration-150"
               style={h.closed
                 ? { background: "var(--bg-elevated)", color: "var(--t3)", border: "1px solid var(--border)" }
                 : { background: "rgba(34,197,94,0.12)", color: "#4ade80", border: "1px solid rgba(34,197,94,0.25)" }
@@ -330,22 +348,28 @@ function HoursEditor({ value, onChange }: { value: Record<string, DayHours>; onC
               {h.closed ? "Closed" : "Open"}
             </button>
 
-            {/* Time range */}
+            {/* Time selects — only when open */}
             {!h.closed && (
               <div className="flex items-center gap-2">
-                <input
-                  type="time"
+                <select
                   value={h.open}
                   onChange={(e) => onChange({ ...value, [day]: { ...h, open: e.target.value } })}
-                  style={timeInputStyle}
-                />
-                <span className="text-sm font-medium" style={{ color: "var(--t3)" }}>to</span>
-                <input
-                  type="time"
+                  style={timeSelectStyle}
+                >
+                  {TIME_SLOTS.map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+                <span className="text-xs font-medium" style={{ color: "var(--t3)" }}>to</span>
+                <select
                   value={h.close}
                   onChange={(e) => onChange({ ...value, [day]: { ...h, close: e.target.value } })}
-                  style={timeInputStyle}
-                />
+                  style={timeSelectStyle}
+                >
+                  {TIME_SLOTS.map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
               </div>
             )}
           </div>
@@ -881,21 +905,15 @@ export default function SettingsPage() {
             <fieldset disabled={!isOwner} className="m-0 min-w-0 border-0 p-0">
               <div className="flex items-end gap-3">
                 <Field label="Start">
-                  <input
-                    type="time"
-                    value={quietStart}
-                    onChange={(e) => setQuietStart(e.target.value)}
-                    style={{ ...INPUT_STYLE, width: "auto" }}
-                  />
+                  <select value={quietStart} onChange={(e) => setQuietStart(e.target.value)} style={timeSelectStyle}>
+                    {TIME_SLOTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
                 </Field>
-                <span className="mb-2 text-sm" style={{ color: "var(--t3)" }}>–</span>
+                <span className="mb-2 text-sm" style={{ color: "var(--t3)" }}>to</span>
                 <Field label="End">
-                  <input
-                    type="time"
-                    value={quietEnd}
-                    onChange={(e) => setQuietEnd(e.target.value)}
-                    style={{ ...INPUT_STYLE, width: "auto" }}
-                  />
+                  <select value={quietEnd} onChange={(e) => setQuietEnd(e.target.value)} style={timeSelectStyle}>
+                    {TIME_SLOTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
                 </Field>
               </div>
             </fieldset>
