@@ -215,6 +215,7 @@ exports.Prisma.BusinessesScalarFieldEnum = {
   id: 'id',
   owner_user_id: 'owner_user_id',
   business_name: 'business_name',
+  slug: 'slug',
   industry: 'industry',
   timezone: 'timezone',
   join_code: 'join_code',

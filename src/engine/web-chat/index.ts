@@ -224,6 +224,7 @@ export async function handleWebChatMessage(
       customerId: inboundResult.customerId,
       conversationId: inboundResult.conversationId,
       messageId: inboundResult.messageId,
+      aiReplyText: inboundResult.aiReplyText,
     };
   }
 
@@ -265,6 +266,7 @@ export async function handleWebChatMessage(
     success: true,
     sessionToken: session.id,
     messageId: result.messageId,
+    aiReplyText: result.aiReplyText,
   };
 }
 

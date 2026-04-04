@@ -31,6 +31,11 @@ export interface WebChatResponse {
   messageId?: string;
   /** Human-readable error code on failure. */
   error?: string;
+  /**
+   * The AI-generated reply text, present on success for web_chat channel.
+   * Generated synchronously so the widget can display it immediately.
+   */
+  aiReplyText?: string;
 }
 
 // ── Session shape ─────────────────────────────────────────────
@@ -67,6 +72,7 @@ export interface WebChatInboundResult {
   conversationId?: string;
   messageId?: string;
   error?: string;
+  aiReplyText?: string;
 }
 
 /**

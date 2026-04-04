@@ -63,6 +63,16 @@ const OnboardingInput = z.object({
   industryAnswers: z.record(z.string()).default({}),
 });
 
+// Converts a business name into a URL-safe slug: "Joe's Plumbing LLC" → "joes-plumbing-llc"
+function toSlug(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "business"
+  );
+}
+
 export const onboardingRouter = createTRPCRouter({
   complete: protectedProcedure
     .input(OnboardingInput)
@@ -94,11 +104,21 @@ export const onboardingRouter = createTRPCRouter({
       }
 
       const result = await ctx.db.$transaction(async (tx) => {
-        // 1. Create business
+        // 1a. Generate a unique slug from the business name
+        const baseSlug = toSlug(input.businessName);
+        let slug = baseSlug;
+        let attempt = 1;
+        while (await tx.businesses.findFirst({ where: { slug }, select: { id: true } })) {
+          attempt++;
+          slug = `${baseSlug}-${attempt}`;
+        }
+
+        // 1b. Create business
         const business = await tx.businesses.create({
           data: {
             owner_user_id: userId,
             business_name: input.businessName,
+            slug,
             industry: input.industry,
             timezone: input.timezone,
             join_code: input.joinCode,

@@ -121,6 +121,7 @@ model businesses {
   id                                    String                              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   owner_user_id                         String                              @unique(map: "businesses_owner_user_id_unique") @db.Uuid
   business_name                         String
+  slug                                  String?                             @unique
   industry                              industry
   timezone                              String
   join_code                             String

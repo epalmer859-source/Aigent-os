@@ -11002,6 +11002,7 @@ export namespace Prisma {
     id: string | null
     owner_user_id: string | null
     business_name: string | null
+    slug: string | null
     industry: $Enums.industry | null
     timezone: string | null
     join_code: string | null
@@ -11046,6 +11047,7 @@ export namespace Prisma {
     id: string | null
     owner_user_id: string | null
     business_name: string | null
+    slug: string | null
     industry: $Enums.industry | null
     timezone: string | null
     join_code: string | null
@@ -11090,6 +11092,7 @@ export namespace Prisma {
     id: number
     owner_user_id: number
     business_name: number
+    slug: number
     industry: number
     timezone: number
     join_code: number
@@ -11148,6 +11151,7 @@ export namespace Prisma {
     id?: true
     owner_user_id?: true
     business_name?: true
+    slug?: true
     industry?: true
     timezone?: true
     join_code?: true
@@ -11192,6 +11196,7 @@ export namespace Prisma {
     id?: true
     owner_user_id?: true
     business_name?: true
+    slug?: true
     industry?: true
     timezone?: true
     join_code?: true
@@ -11236,6 +11241,7 @@ export namespace Prisma {
     id?: true
     owner_user_id?: true
     business_name?: true
+    slug?: true
     industry?: true
     timezone?: true
     join_code?: true
@@ -11367,6 +11373,7 @@ export namespace Prisma {
     id: string
     owner_user_id: string
     business_name: string
+    slug: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -11430,6 +11437,7 @@ export namespace Prisma {
     id?: boolean
     owner_user_id?: boolean
     business_name?: boolean
+    slug?: boolean
     industry?: boolean
     timezone?: boolean
     join_code?: boolean
@@ -11505,6 +11513,7 @@ export namespace Prisma {
     id?: boolean
     owner_user_id?: boolean
     business_name?: boolean
+    slug?: boolean
     industry?: boolean
     timezone?: boolean
     join_code?: boolean
@@ -11550,6 +11559,7 @@ export namespace Prisma {
     id?: boolean
     owner_user_id?: boolean
     business_name?: boolean
+    slug?: boolean
     industry?: boolean
     timezone?: boolean
     join_code?: boolean
@@ -11595,6 +11605,7 @@ export namespace Prisma {
     id?: boolean
     owner_user_id?: boolean
     business_name?: boolean
+    slug?: boolean
     industry?: boolean
     timezone?: boolean
     join_code?: boolean
@@ -11635,7 +11646,7 @@ export namespace Prisma {
     updated_at?: boolean
   }
 
-  export type businessesOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "owner_user_id" | "business_name" | "industry" | "timezone" | "join_code" | "is_paused" | "pause_message" | "default_takeover_timer_seconds" | "google_review_link" | "preferred_phone_number" | "urgent_alert_phone" | "urgent_alert_email" | "ai_signoff_name" | "ai_tone_description" | "always_say" | "never_say" | "supported_languages" | "multilingual_enabled" | "ai_call_answering_enabled" | "rough_estimate_mode_enabled" | "labor_pricing_method" | "payment_management_enabled" | "cancellation_policy" | "warranty_policy" | "payment_methods" | "emergency_rules" | "customer_prep" | "common_questions" | "typical_process" | "important_details" | "customer_philosophy" | "takeover_notification_message" | "quiet_hours_start" | "quiet_hours_end" | "quote_expiry_days" | "auto_close_days" | "onboarding_completed_at" | "deleted_at" | "created_at" | "updated_at", ExtArgs["result"]["businesses"]>
+  export type businessesOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "owner_user_id" | "business_name" | "slug" | "industry" | "timezone" | "join_code" | "is_paused" | "pause_message" | "default_takeover_timer_seconds" | "google_review_link" | "preferred_phone_number" | "urgent_alert_phone" | "urgent_alert_email" | "ai_signoff_name" | "ai_tone_description" | "always_say" | "never_say" | "supported_languages" | "multilingual_enabled" | "ai_call_answering_enabled" | "rough_estimate_mode_enabled" | "labor_pricing_method" | "payment_management_enabled" | "cancellation_policy" | "warranty_policy" | "payment_methods" | "emergency_rules" | "customer_prep" | "common_questions" | "typical_process" | "important_details" | "customer_philosophy" | "takeover_notification_message" | "quiet_hours_start" | "quiet_hours_end" | "quote_expiry_days" | "auto_close_days" | "onboarding_completed_at" | "deleted_at" | "created_at" | "updated_at", ExtArgs["result"]["businesses"]>
   export type businessesInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     appointment_change_requests?: boolean | businesses$appointment_change_requestsArgs<ExtArgs>
     appointments?: boolean | businesses$appointmentsArgs<ExtArgs>
@@ -11714,6 +11725,7 @@ export namespace Prisma {
       id: string
       owner_user_id: string
       business_name: string
+      slug: string | null
       industry: $Enums.industry
       timezone: string
       join_code: string
@@ -12208,6 +12220,7 @@ export namespace Prisma {
     readonly id: FieldRef<"businesses", 'String'>
     readonly owner_user_id: FieldRef<"businesses", 'String'>
     readonly business_name: FieldRef<"businesses", 'String'>
+    readonly slug: FieldRef<"businesses", 'String'>
     readonly industry: FieldRef<"businesses", 'industry'>
     readonly timezone: FieldRef<"businesses", 'String'>
     readonly join_code: FieldRef<"businesses", 'String'>
@@ -43374,6 +43387,7 @@ export namespace Prisma {
     id: 'id',
     owner_user_id: 'owner_user_id',
     business_name: 'business_name',
+    slug: 'slug',
     industry: 'industry',
     timezone: 'timezone',
     join_code: 'join_code',
@@ -44842,6 +44856,7 @@ export namespace Prisma {
     id?: UuidFilter<"businesses"> | string
     owner_user_id?: UuidFilter<"businesses"> | string
     business_name?: StringFilter<"businesses"> | string
+    slug?: StringNullableFilter<"businesses"> | string | null
     industry?: EnumindustryFilter<"businesses"> | $Enums.industry
     timezone?: StringFilter<"businesses"> | string
     join_code?: StringFilter<"businesses"> | string
@@ -44916,6 +44931,7 @@ export namespace Prisma {
     id?: SortOrder
     owner_user_id?: SortOrder
     business_name?: SortOrder
+    slug?: SortOrderInput | SortOrder
     industry?: SortOrder
     timezone?: SortOrder
     join_code?: SortOrder
@@ -44989,6 +45005,7 @@ export namespace Prisma {
   export type businessesWhereUniqueInput = Prisma.AtLeast<{
     id?: string
     owner_user_id?: string
+    slug?: string
     AND?: businessesWhereInput | businessesWhereInput[]
     OR?: businessesWhereInput[]
     NOT?: businessesWhereInput | businessesWhereInput[]
@@ -45061,12 +45078,13 @@ export namespace Prisma {
     web_chat_sessions?: Web_chat_sessionsListRelationFilter
     twilio_config?: XOR<Twilio_configNullableScalarRelationFilter, twilio_configWhereInput> | null
     calendar_connections?: XOR<Calendar_connectionsNullableScalarRelationFilter, calendar_connectionsWhereInput> | null
-  }, "id" | "owner_user_id">
+  }, "id" | "owner_user_id" | "slug">
 
   export type businessesOrderByWithAggregationInput = {
     id?: SortOrder
     owner_user_id?: SortOrder
     business_name?: SortOrder
+    slug?: SortOrderInput | SortOrder
     industry?: SortOrder
     timezone?: SortOrder
     join_code?: SortOrder
@@ -45119,6 +45137,7 @@ export namespace Prisma {
     id?: UuidWithAggregatesFilter<"businesses"> | string
     owner_user_id?: UuidWithAggregatesFilter<"businesses"> | string
     business_name?: StringWithAggregatesFilter<"businesses"> | string
+    slug?: StringNullableWithAggregatesFilter<"businesses"> | string | null
     industry?: EnumindustryWithAggregatesFilter<"businesses"> | $Enums.industry
     timezone?: StringWithAggregatesFilter<"businesses"> | string
     join_code?: StringWithAggregatesFilter<"businesses"> | string
@@ -48292,6 +48311,7 @@ export namespace Prisma {
   export type businessesCreateInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -48366,6 +48386,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -48438,6 +48459,7 @@ export namespace Prisma {
   export type businessesUpdateInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -48512,6 +48534,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -48585,6 +48608,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -48628,6 +48652,7 @@ export namespace Prisma {
   export type businessesUpdateManyMutationInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -48672,6 +48697,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -52432,6 +52458,7 @@ export namespace Prisma {
     id?: SortOrder
     owner_user_id?: SortOrder
     business_name?: SortOrder
+    slug?: SortOrder
     industry?: SortOrder
     timezone?: SortOrder
     join_code?: SortOrder
@@ -52482,6 +52509,7 @@ export namespace Prisma {
     id?: SortOrder
     owner_user_id?: SortOrder
     business_name?: SortOrder
+    slug?: SortOrder
     industry?: SortOrder
     timezone?: SortOrder
     join_code?: SortOrder
@@ -52526,6 +52554,7 @@ export namespace Prisma {
     id?: SortOrder
     owner_user_id?: SortOrder
     business_name?: SortOrder
+    slug?: SortOrder
     industry?: SortOrder
     timezone?: SortOrder
     join_code?: SortOrder
@@ -59274,6 +59303,7 @@ export namespace Prisma {
   export type businessesCreateWithoutAppointment_change_requestsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -59347,6 +59377,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -59608,6 +59639,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutAppointment_change_requestsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -59681,6 +59713,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -59907,6 +59940,7 @@ export namespace Prisma {
   export type businessesCreateWithoutAppointmentsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -59980,6 +60014,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -60424,6 +60459,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutAppointmentsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -60497,6 +60533,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -60893,6 +60930,7 @@ export namespace Prisma {
   export type businessesCreateWithoutApproval_requestsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -60966,6 +61004,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -61252,6 +61291,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutApproval_requestsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -61325,6 +61365,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -61613,6 +61654,7 @@ export namespace Prisma {
   export type businessesCreateWithoutAttachmentsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -61686,6 +61728,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -61927,6 +61970,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutAttachmentsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -62000,6 +62044,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -62237,6 +62282,7 @@ export namespace Prisma {
   export type businessesCreateWithoutBusiness_configInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -62310,6 +62356,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -62397,6 +62444,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutBusiness_configInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -62470,6 +62518,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -64832,6 +64881,7 @@ export namespace Prisma {
   export type businessesCreateWithoutCalendar_connectionsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -64905,6 +64955,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -64992,6 +65043,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutCalendar_connectionsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -65065,6 +65117,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -65197,6 +65250,7 @@ export namespace Prisma {
   export type businessesCreateWithoutCalendar_sync_logInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -65270,6 +65324,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -65424,6 +65479,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutCalendar_sync_logInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -65497,6 +65553,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -65675,6 +65732,7 @@ export namespace Prisma {
   export type businessesCreateWithoutConversation_mergesInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -65748,6 +65806,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -66106,6 +66165,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutConversation_mergesInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -66179,6 +66239,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -66420,6 +66481,7 @@ export namespace Prisma {
   export type businessesCreateWithoutConversation_tagsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -66493,6 +66555,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -66687,6 +66750,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutConversation_tagsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -66760,6 +66824,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -67208,6 +67273,7 @@ export namespace Prisma {
   export type businessesCreateWithoutConversationsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -67281,6 +67347,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -68099,6 +68166,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutConversationsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -68172,6 +68240,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -68582,6 +68651,7 @@ export namespace Prisma {
   export type businessesCreateWithoutCustomer_contactsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -68655,6 +68725,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -68793,6 +68864,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutCustomer_contactsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -68866,6 +68938,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -69270,6 +69343,7 @@ export namespace Prisma {
   export type businessesCreateWithoutCustomersInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -69343,6 +69417,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -69688,6 +69763,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutCustomersInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -69761,6 +69837,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -69896,6 +69973,7 @@ export namespace Prisma {
   export type businessesCreateWithoutEscalationsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -69969,6 +70047,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -70255,6 +70334,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutEscalationsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -70328,6 +70408,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -70616,6 +70697,7 @@ export namespace Prisma {
   export type businessesCreateWithoutEvent_logInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -70689,6 +70771,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -70949,6 +71032,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutEvent_logInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -71022,6 +71106,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -71476,6 +71561,7 @@ export namespace Prisma {
   export type businessesCreateWithoutMessage_logInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -71549,6 +71635,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -71912,6 +71999,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutMessage_logInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -71985,6 +72073,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -72248,6 +72337,7 @@ export namespace Prisma {
   export type businessesCreateWithoutMessage_templatesInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -72321,6 +72411,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -72408,6 +72499,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutMessage_templatesInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -72481,6 +72573,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -72552,6 +72645,7 @@ export namespace Prisma {
   export type businessesCreateWithoutNotificationsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -72625,6 +72719,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -72753,6 +72848,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutNotificationsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -72826,6 +72922,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -72944,6 +73041,7 @@ export namespace Prisma {
   export type businessesCreateWithoutOutbound_queueInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -73017,6 +73115,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -73278,6 +73377,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutOutbound_queueInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -73351,6 +73451,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -73649,6 +73750,7 @@ export namespace Prisma {
   export type businessesCreateWithoutParts_inquiriesInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -73722,6 +73824,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -74024,6 +74127,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutParts_inquiriesInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -74097,6 +74201,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -74389,6 +74494,7 @@ export namespace Prisma {
   export type businessesCreateWithoutPayment_managementInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -74462,6 +74568,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -74774,6 +74881,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutPayment_managementInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -74847,6 +74955,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -75088,6 +75197,7 @@ export namespace Prisma {
   export type businessesCreateWithoutPost_job_closeoutsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -75161,6 +75271,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -75463,6 +75574,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutPost_job_closeoutsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -75536,6 +75648,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -75840,6 +75953,7 @@ export namespace Prisma {
   export type businessesCreateWithoutPricing_itemsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -75913,6 +76027,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -76000,6 +76115,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutPricing_itemsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -76073,6 +76189,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -76144,6 +76261,7 @@ export namespace Prisma {
   export type businessesCreateWithoutPrompt_logInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -76217,6 +76335,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -76458,6 +76577,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutPrompt_logInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -76531,6 +76651,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -76809,6 +76930,7 @@ export namespace Prisma {
   export type businessesCreateWithoutQuotesInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -76882,6 +77004,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -77273,6 +77396,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutQuotesInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -77346,6 +77470,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -77656,6 +77781,7 @@ export namespace Prisma {
   export type businessesCreateWithoutRecurring_service_change_requestsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -77729,6 +77855,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -77968,6 +78095,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutRecurring_service_change_requestsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -78041,6 +78169,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -78386,6 +78515,7 @@ export namespace Prisma {
   export type businessesCreateWithoutRecurring_servicesInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -78459,6 +78589,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -78629,6 +78760,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutRecurring_servicesInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -78702,6 +78834,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -78866,6 +78999,7 @@ export namespace Prisma {
   export type businessesCreateWithoutUsers_businesses_owner_user_idTousersInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -78938,6 +79072,7 @@ export namespace Prisma {
   export type businessesUncheckedCreateWithoutUsers_businesses_owner_user_idTousersInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -79235,6 +79370,7 @@ export namespace Prisma {
   export type businessesCreateWithoutUsers_users_business_idTobusinessesInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -79308,6 +79444,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -79411,6 +79548,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutUsers_businesses_owner_user_idTousersInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -79483,6 +79621,7 @@ export namespace Prisma {
   export type businessesUncheckedUpdateWithoutUsers_businesses_owner_user_idTousersInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -79646,6 +79785,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutUsers_users_business_idTobusinessesInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -79719,6 +79859,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -79790,6 +79931,7 @@ export namespace Prisma {
   export type businessesCreateWithoutWeb_chat_sessionsInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -79863,6 +80005,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -80057,6 +80200,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutWeb_chat_sessionsInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -80130,6 +80274,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -80314,6 +80459,7 @@ export namespace Prisma {
   export type businessesCreateWithoutTwilio_configInput = {
     id?: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -80387,6 +80533,7 @@ export namespace Prisma {
     id?: string
     owner_user_id: string
     business_name: string
+    slug?: string | null
     industry: $Enums.industry
     timezone: string
     join_code: string
@@ -80474,6 +80621,7 @@ export namespace Prisma {
   export type businessesUpdateWithoutTwilio_configInput = {
     id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
@@ -80547,6 +80695,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     owner_user_id?: StringFieldUpdateOperationsInput | string
     business_name?: StringFieldUpdateOperationsInput | string
+    slug?: NullableStringFieldUpdateOperationsInput | string | null
     industry?: EnumindustryFieldUpdateOperationsInput | $Enums.industry
     timezone?: StringFieldUpdateOperationsInput | string
     join_code?: StringFieldUpdateOperationsInput | string
