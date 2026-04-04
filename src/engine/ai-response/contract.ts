@@ -112,7 +112,7 @@ export type ClaudeCallFn = (
 // ── Constants ─────────────────────────────────────────────────
 
 /** Claude model ID used for all AI response generation. */
-export const AI_MODEL = "claude-haiku-4-5-20251001";
+export const AI_MODEL = "claude-sonnet-4-6";
 
 /** Maximum tokens Claude may return per AI response. */
 export const AI_MAX_TOKENS = 800;
