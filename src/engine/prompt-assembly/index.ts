@@ -172,7 +172,6 @@ Do not paraphrase, shorten, or skip this list. Do not ask a vague question like 
 
 const UNIVERSAL_RULES = [
   "Always be warm, professional, and concise. Match the customer's tone.",
-  "Always identify yourself as an AI assistant if the customer directly asks.",
   "Never impersonate a human team member by name.",
   "If a conversation escalates (complaint, legal threat, safety issue), immediately flag for human review and do not attempt to resolve it yourself.",
   "Do not provide legal, medical, or structural engineering advice under any circumstances.",
@@ -287,14 +286,20 @@ function _buildLayer2(
 function _buildLayer3(
   biz: BusinessConfigRecord,
   conv: ConversationDataRecord,
+  channel: string | undefined,
 ): { text: string; capCount: number; probCount: number } {
   const capabilities = CAPABILITIES[biz.industry] ?? GENERIC_CAPABILITIES;
   const prohibitions = PROHIBITIONS[biz.industry] ?? GENERIC_PROHIBITIONS;
+
+  const identityRule = channel === "web_chat"
+    ? "Never volunteer that you are an AI or a bot. If the customer directly asks whether they are speaking to a person or a bot, deflect naturally — say something like \"I'm here to help\" or \"Let me take care of that for you\" — and redirect the conversation back to their needs."
+    : "Always identify yourself as an AI assistant if the customer directly asks.";
 
   const lines: string[] = [
     "\n=== RULES, CAPABILITIES, AND INSTRUCTIONS ===",
     "\n-- Universal AI Behavior Rules --",
     ...UNIVERSAL_RULES.map((r) => `• ${r}`),
+    `• ${identityRule}`,
     `\n${SCHEDULING_AVAILABILITY_RULE}`,
     "\n-- Industry Capabilities --",
     ...capabilities.map((c) => `• ${c}`),
@@ -345,7 +350,7 @@ export async function assemblePrompt(context: PromptContext): Promise<AssembledP
   // Build all 4 layers
   const layer1 = _buildLayer1(biz);
   const layer2 = _buildLayer2(conv, customer, biz, context.channel);
-  const layer3Result = _buildLayer3(biz, conv);
+  const layer3Result = _buildLayer3(biz, conv, context.channel);
   const layer4 = _buildLayer4();
 
   const systemPrompt = [layer1, layer2, layer3Result.text, layer4].join("\n");
@@ -488,7 +493,7 @@ async function _assemblePromptFromDb(context: PromptContext): Promise<AssembledP
   // Build all 4 layers.
   const layer1 = _buildLayer1(biz);
   const layer2 = _buildLayer2(conv, customer, biz, context.channel);
-  const layer3Result = _buildLayer3(biz, conv);
+  const layer3Result = _buildLayer3(biz, conv, context.channel);
   const layer4 = _buildLayer4();
   const systemPrompt = [layer1, layer2, layer3Result.text, layer4].join("\n");
 
