@@ -641,7 +641,7 @@ async function _generateAIResponseFromDb(
     const customerPhone = convInfo?.contact_handle ?? null;
     const customerName = convInfo?.contact_display_name ?? "there";
     const availPref = effectiveDecision.availability_preference
-      ?? (effectiveDecision as Record<string, unknown>)["availabilityPreference"] as string | null | undefined
+      ?? (effectiveDecision as unknown as Record<string, unknown>)["availabilityPreference"] as string | null | undefined
       ?? null;
     const summaryText = [
       customerName !== "there" ? `Customer: ${customerName}` : null,
@@ -700,8 +700,8 @@ async function _generateAIResponseFromDb(
     });
 
     // If Claude collected a name or phone this turn, write them to the conversation title.
-    const collectedName = effectiveDecision.collected_name ?? (effectiveDecision as Record<string, unknown>)["collectedName"] as string | null | undefined;
-    const collectedPhone = effectiveDecision.collected_phone ?? (effectiveDecision as Record<string, unknown>)["collectedPhone"] as string | null | undefined;
+    const collectedName = effectiveDecision.collected_name ?? (effectiveDecision as unknown as Record<string, unknown>)["collectedName"] as string | null | undefined;
+    const collectedPhone = effectiveDecision.collected_phone ?? (effectiveDecision as unknown as Record<string, unknown>)["collectedPhone"] as string | null | undefined;
     if (collectedName ?? collectedPhone) {
       const titleUpdate: Record<string, string> = {};
       if (collectedName) titleUpdate["contact_display_name"] = collectedName;
