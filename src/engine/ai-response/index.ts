@@ -629,10 +629,15 @@ async function _generateAIResponseFromDb(
   }
 
   // Store outbound message + queue row + prompt log in a transaction.
+  // Also stamp ai_disclosure_sent_at on first message so the disclosure never repeats.
   const { msgId, queueId } = await db.$transaction(async (tx) => {
     const msg = await tx.message_log.create({ data: { business_id: businessId, conversation_id: conversationId, direction: "outbound", channel: "sms", sender_type: "ai", content: responseText } });
     const q = await tx.outbound_queue.create({ data: { business_id: businessId, conversation_id: conversationId, message_purpose: messagePurpose, audience_type: "customer", channel: "sms", dedupe_key: `ai:${conversationId}:${Date.now()}`, scheduled_send_at: new Date() } });
     await tx.prompt_log.create({ data: { business_id: businessId, conversation_id: conversationId, prompt_purpose: "ai_response", prompt_text: (systemPrompt ?? "").slice(0, 2000), response_text: (responseText ?? "").slice(0, 2000), model: AI_MODEL, latency_ms: latencyMs, success: true } });
+    await tx.customers.updateMany({
+      where: { id: customerId, ai_disclosure_sent_at: null },
+      data: { ai_disclosure_sent_at: new Date() },
+    });
     return { msgId: msg.id, queueId: q.id };
   });
 
