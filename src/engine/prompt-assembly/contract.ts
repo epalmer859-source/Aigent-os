@@ -36,6 +36,12 @@ export interface PromptContext {
   customerId: string;
   /** ID of the inbound message that triggered this AI response cycle. */
   inboundMessageId: string;
+  /**
+   * Channel the message arrived on ('sms', 'web_chat', etc.).
+   * Used to decide whether to include the legal AI disclosure.
+   * Disclosure is required for SMS; omitted for web_chat.
+   */
+  channel?: string;
 }
 
 // ── Output shapes ─────────────────────────────────────────────

@@ -456,6 +456,7 @@ async function _processRowFromDb(row: QueueRow, db: any): Promise<keyof QueueWor
         businessId: row.businessId,
         conversationId: row.conversationId,
         inboundMessageId: latestInbound.id,
+        channel: row.channel,
       });
     }
     await db.outbound_queue.update({

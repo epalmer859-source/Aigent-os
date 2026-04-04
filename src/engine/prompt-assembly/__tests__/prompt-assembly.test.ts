@@ -9,7 +9,7 @@
 // Test categories:
 //   L01-L10  Layer assembly (content present in systemPrompt)
 //   H01-H04  Conversation history (ordering, mapping, count)
-//   D01-D02  No disclosure / no emoji
+//   D01-D04  AI disclosure (SMS only) / no emoji
 //   M01-M05  Metadata fields
 //   S01-S04  State-specific instructions
 // ============================================================
@@ -29,6 +29,7 @@ import {
 // ── Constants from contract ───────────────────────────────────
 import {
   MAX_HISTORY_MESSAGES,
+  AI_DISCLOSURE_TEMPLATE,
   RESPONSE_FORMAT_INSTRUCTION,
   type PromptContext,
   type AssembledPrompt,
@@ -246,22 +247,34 @@ describe("H: Conversation history", () => {
   });
 });
 
-// ── D: No disclosure / no emoji ──────────────────────────────
+// ── D: AI disclosure / no emoji ──────────────────────────────
 
-describe("D: No disclosure / no emoji", () => {
+describe("D: AI disclosure / no emoji", () => {
   beforeEach(() => {
     resetAll();
     seedDefaultBusiness();
     seedDefaultConversation();
   });
 
-  it("D01: prompt never contains AI disclosure instruction regardless of ai_disclosure_sent_at", async () => {
+  it("D01: SMS + ai_disclosure_sent_at null → prompt includes disclosure instruction", async () => {
     seedDefaultCustomer({ aiDisclosureSentAt: null });
-    const result = await assemblePrompt(makeContext());
+    const result = await assemblePrompt({ ...makeContext(), channel: "sms" });
+    expect(result.systemPrompt).toContain("MUST include the AI disclosure");
+  });
+
+  it("D02: web_chat + ai_disclosure_sent_at null → prompt does NOT include disclosure", async () => {
+    seedDefaultCustomer({ aiDisclosureSentAt: null });
+    const result = await assemblePrompt({ ...makeContext(), channel: "web_chat" });
     expect(result.systemPrompt).not.toContain("MUST include the AI disclosure");
   });
 
-  it("D02: prompt always contains no-emoji rule", async () => {
+  it("D03: SMS + ai_disclosure_sent_at set → prompt does NOT include disclosure", async () => {
+    seedDefaultCustomer({ aiDisclosureSentAt: new Date("2024-01-01T00:00:00Z") });
+    const result = await assemblePrompt({ ...makeContext(), channel: "sms" });
+    expect(result.systemPrompt).not.toContain("MUST include the AI disclosure");
+  });
+
+  it("D04: prompt always contains no-emoji rule", async () => {
     seedDefaultCustomer();
     const result = await assemblePrompt(makeContext());
     expect(result.systemPrompt).toContain("Never use emojis");

@@ -58,6 +58,8 @@ export interface GenerateResponseParams {
   conversationId: string;
   /** ID of the inbound message that triggered this cycle. */
   inboundMessageId: string;
+  /** Channel the message arrived on ('sms', 'web_chat', etc.). Passed to prompt assembly for disclosure gating. */
+  channel?: string;
 }
 
 export interface GenerateResponseResult {

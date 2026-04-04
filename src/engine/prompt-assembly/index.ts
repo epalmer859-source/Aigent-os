@@ -21,6 +21,7 @@
 import { z } from "zod";
 import {
   MAX_HISTORY_MESSAGES,
+  AI_DISCLOSURE_TEMPLATE,
   RESPONSE_FORMAT_INSTRUCTION,
   type PromptContext,
   type AssembledPrompt,
@@ -248,6 +249,8 @@ function _buildLayer1(biz: BusinessConfigRecord): string {
 function _buildLayer2(
   conv: ConversationDataRecord,
   customer: CustomerDataRecord,
+  biz: BusinessConfigRecord,
+  channel: string | undefined,
 ): string {
   const lines: string[] = [
     "\n=== CONVERSATION CONTEXT ===",
@@ -266,6 +269,16 @@ function _buildLayer2(
   }
   if (conv.requestedDataFields && conv.requestedDataFields.length > 0) {
     lines.push(`Still waiting for: ${conv.requestedDataFields.join(", ")}`);
+  }
+
+  // AI disclosure required for SMS; not required for web_chat.
+  if (channel !== "web_chat" && customer.aiDisclosureSentAt === null) {
+    const disclosure = AI_DISCLOSURE_TEMPLATE
+      .replace("{signoff_name}", biz.signoffName)
+      .replace("{business_name}", biz.name);
+    lines.push(
+      `\nIMPORTANT: This is your first message to this customer. You MUST include the AI disclosure in your response: "${disclosure}"`,
+    );
   }
 
   return lines.join("\n");
@@ -331,7 +344,7 @@ export async function assemblePrompt(context: PromptContext): Promise<AssembledP
 
   // Build all 4 layers
   const layer1 = _buildLayer1(biz);
-  const layer2 = _buildLayer2(conv, customer);
+  const layer2 = _buildLayer2(conv, customer, biz, context.channel);
   const layer3Result = _buildLayer3(biz, conv);
   const layer4 = _buildLayer4();
 
@@ -474,7 +487,7 @@ async function _assemblePromptFromDb(context: PromptContext): Promise<AssembledP
 
   // Build all 4 layers.
   const layer1 = _buildLayer1(biz);
-  const layer2 = _buildLayer2(conv, customer);
+  const layer2 = _buildLayer2(conv, customer, biz, context.channel);
   const layer3Result = _buildLayer3(biz, conv);
   const layer4 = _buildLayer4();
   const systemPrompt = [layer1, layer2, layer3Result.text, layer4].join("\n");

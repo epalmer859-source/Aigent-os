@@ -665,6 +665,7 @@ async function _handleInboundMessageFromDb(
           businessId: params.businessId,
           conversationId: conv.id,
           inboundMessageId: msg.id,
+          channel: params.channel,
         });
         console.log("[web-chat-ai] result:", JSON.stringify(aiResult));
       } catch (error) {

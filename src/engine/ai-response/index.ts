@@ -50,6 +50,7 @@ const GenerateResponseParamsSchema = z.object({
   businessId: z.string().min(1),
   conversationId: z.string().min(1),
   inboundMessageId: z.string().min(1),
+  channel: z.string().optional(),
 });
 
 // ── In-memory stores ──────────────────────────────────────────
@@ -223,7 +224,7 @@ export async function generateAIResponse(
     return _generateAIResponseFromDb(params);
   }
 
-  const { businessId, conversationId, inboundMessageId } = params;
+  const { businessId, conversationId, inboundMessageId, channel } = params;
 
   // 2. Resolve customerId
   const customerId = getConversationCustomerId(conversationId);
@@ -245,6 +246,7 @@ export async function generateAIResponse(
       conversationId,
       customerId,
       inboundMessageId,
+      channel,
     });
     systemPrompt = assembled.systemPrompt;
     conversationHistory = assembled.conversationHistory.map((m) => ({
@@ -493,7 +495,7 @@ async function _generateAIResponseFromDb(
   params: GenerateResponseParams,
 ): Promise<GenerateResponseResult> {
   const { db } = await import("~/server/db");
-  const { businessId, conversationId, inboundMessageId } = params;
+  const { businessId, conversationId, inboundMessageId, channel } = params;
 
   // Resolve customerId from DB.
   console.log("[ai-response] starting for conversation:", conversationId);
@@ -513,7 +515,7 @@ async function _generateAIResponseFromDb(
   let systemPrompt: string;
   let conversationHistory: { role: "user" | "assistant"; content: string }[];
   try {
-    const assembled = await assemblePrompt({ businessId, conversationId, customerId, inboundMessageId });
+    const assembled = await assemblePrompt({ businessId, conversationId, customerId, inboundMessageId, channel });
     systemPrompt = assembled.systemPrompt;
     conversationHistory = assembled.conversationHistory.map((m) => ({ role: m.role, content: m.content }));
     console.log("[ai-response] prompt assembled, system length:", systemPrompt.length, "history messages:", conversationHistory.length);
