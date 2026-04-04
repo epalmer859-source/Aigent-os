@@ -679,7 +679,7 @@ async function _generateAIResponseFromDb(
           message_purpose: "booking_confirmation",
           audience_type: "customer",
           channel: "sms",
-          content: `Hi${customerName !== "there" ? ` ${customerName}` : ""}! We received your request and will reach out shortly to confirm your appointment time. Thank you!`,
+          content: `Hi${customerName !== "there" ? ` ${customerName}` : ""}! We received your request and will text you as soon as possible to confirm your appointment time.`,
           dedupe_key: `booking_confirmed:${conversationId}`,
           scheduled_send_at: new Date(),
         },
