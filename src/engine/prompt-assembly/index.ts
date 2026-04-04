@@ -215,17 +215,20 @@ function _getStateInstruction(state: string): string {
 
 const AI_DECISION_SCHEMA = `
 {
-  "responseText": "string — the message to send to the customer",
-  "suggestedNextState": "string | null — proposed conversation state transition, or null if no change",
-  "requestedDataFields": "string[] | null — fields you still need from the customer",
+  "response_text": "string — the message to send to the customer",
+  "proposed_state_change": "string | null — proposed conversation state transition, or null if no change",
+  "requested_data_fields": "string[] — fields you still need from the customer, or []",
   "confidence": "number — 0.0 to 1.0, how confident you are in this response",
-  "shouldEscalate": "boolean — true if a human should review this conversation",
-  "escalationReason": "string | null — why escalation is needed, or null",
-  "rule_flags": "string[] — active rule flags for this response. Use [] if none apply. Known values: 'human_requested', 'aggressive_message', 'out_of_area', 'booking_confirmed'. Set 'booking_confirmed' when the customer has confirmed all their details and said there is nothing else to change or add.",
-  "bookingConfirmed": "boolean — set to true ONLY when the customer has explicitly confirmed everything looks right and there is nothing else they need. This triggers the scheduling request to admin and the confirmation text to the customer. Do not set to true prematurely.",
-  "collectedName": "string | null — the customer's full name if they provided it in this turn, otherwise null",
-  "collectedPhone": "string | null — the customer's callback phone number if they provided it in this turn, otherwise null",
-  "availabilityPreference": "string | null — the customer's scheduling preference (e.g. 'Soonest available', 'Mornings only') if collected in this turn, otherwise null"
+  "handoff_required": "boolean — true if a human should take over this conversation",
+  "handoff_reason": "string | null — why handoff is needed, or null",
+  "message_purpose": "string — purpose label for this message, e.g. 'new_lead_response', 'booking_confirmation', 'general_reply'",
+  "detected_intent": "string — your classification of what the customer is asking for",
+  "is_first_message": "boolean — true if this is the very first message sent to this customer",
+  "rule_flags": "string[] — active rule flags. Use [] if none apply. Known values: 'human_requested', 'aggressive_message', 'out_of_area', 'booking_confirmed'. Set 'booking_confirmed' when the customer has confirmed all details and there is nothing else.",
+  "bookingConfirmed": "boolean — set to true ONLY when the customer has explicitly confirmed everything and there is nothing else. Triggers the scheduling request and confirmation text. Do not set prematurely.",
+  "collected_name": "string | null — the customer's full name if provided this turn, otherwise null",
+  "collected_phone": "string | null — the customer's phone number if provided this turn, otherwise null",
+  "availability_preference": "string | null — scheduling preference if collected this turn (e.g. 'Soonest available', 'Mornings only'), otherwise null"
 }`;
 
 // ── Layer builders ────────────────────────────────────────────

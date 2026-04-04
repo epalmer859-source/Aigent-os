@@ -152,9 +152,20 @@ function _parseDecision(raw: string): AIDecision | null {
   let text = raw.trim();
   // Strip markdown fences e.g. ```json ... ```
   text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  // First attempt: parse as-is
   try {
     return JSON.parse(text) as AIDecision;
   } catch {
+    // Second attempt: extract the outermost JSON object by finding first { and last }
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      try {
+        return JSON.parse(text.slice(start, end + 1)) as AIDecision;
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }
