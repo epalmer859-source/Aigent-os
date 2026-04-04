@@ -631,7 +631,7 @@ async function _generateAIResponseFromDb(
   }
 
   // ── booking_confirmed: transition + admin request + confirmation SMS ────────
-  const isBookingConfirmed = flags.includes("booking_confirmed");
+  const isBookingConfirmed = flags.includes("booking_confirmed") || effectiveDecision.bookingConfirmed === true;
   if (isBookingConfirmed) {
     // Fetch the conversation's current contact info for the SMS and summary.
     const convInfo = await db.conversations.findUnique({

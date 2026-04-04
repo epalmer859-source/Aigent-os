@@ -26,6 +26,11 @@ export interface AIDecision {
   responseText?: string;
   /** Target state for a transition, or null if no change proposed. */
   proposed_state_change: string | null;
+  /**
+   * Explicit confirmation that the customer approved everything and there is nothing else.
+   * When true, triggers the scheduling request to admin + confirmation SMS.
+   */
+  bookingConfirmed?: boolean;
   /** Customer's full name if just collected in this turn — used to title the conversation. */
   collected_name?: string | null;
   /** Customer's callback phone number if just collected in this turn — used to title the conversation. */

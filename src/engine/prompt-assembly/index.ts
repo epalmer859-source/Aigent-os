@@ -221,6 +221,8 @@ const AI_DECISION_SCHEMA = `
   "confidence": "number — 0.0 to 1.0, how confident you are in this response",
   "shouldEscalate": "boolean — true if a human should review this conversation",
   "escalationReason": "string | null — why escalation is needed, or null",
+  "rule_flags": "string[] — active rule flags for this response. Use [] if none apply. Known values: 'human_requested', 'aggressive_message', 'out_of_area', 'booking_confirmed'. Set 'booking_confirmed' when the customer has confirmed all their details and said there is nothing else to change or add.",
+  "bookingConfirmed": "boolean — set to true ONLY when the customer has explicitly confirmed everything looks right and there is nothing else they need. This triggers the scheduling request to admin and the confirmation text to the customer. Do not set to true prematurely.",
   "collectedName": "string | null — the customer's full name if they provided it in this turn, otherwise null",
   "collectedPhone": "string | null — the customer's callback phone number if they provided it in this turn, otherwise null",
   "availabilityPreference": "string | null — the customer's scheduling preference (e.g. 'Soonest available', 'Mornings only') if collected in this turn, otherwise null"
