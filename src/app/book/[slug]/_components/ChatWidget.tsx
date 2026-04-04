@@ -19,6 +19,8 @@ interface ChatWidgetProps {
   businessName: string;
 }
 
+const ADDRESS_FORM_MARKER = "{{ADDRESS_FORM}}";
+
 function SendIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -28,17 +30,137 @@ function SendIcon() {
   );
 }
 
+interface AddressFormProps {
+  onSubmit: (formatted: string) => void;
+}
+
+function AddressForm({ onSubmit }: AddressFormProps) {
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zip, setZip] = useState("");
+  const [error, setError] = useState("");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!street.trim() || !city.trim() || !state.trim()) {
+      setError("Street, city, and state are required.");
+      return;
+    }
+    const parts = [street.trim(), city.trim(), state.trim()];
+    if (zip.trim()) parts.push(zip.trim());
+    onSubmit(parts.join(", "));
+  }
+
+  const inputStyle: React.CSSProperties = {
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: "8px",
+    color: "#e4e4e7",
+    padding: "8px 12px",
+    fontSize: "13px",
+    width: "100%",
+    outline: "none",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    color: "#71717a",
+    fontSize: "10px",
+    fontWeight: 600,
+    marginBottom: "4px",
+    display: "block",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      <div>
+        <label style={labelStyle}>Street Address *</label>
+        <input
+          type="text"
+          placeholder="123 Main St"
+          value={street}
+          onChange={(e) => setStreet(e.target.value)}
+          style={inputStyle}
+          autoFocus
+        />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 72px", gap: "8px" }}>
+        <div>
+          <label style={labelStyle}>City *</label>
+          <input
+            type="text"
+            placeholder="Springfield"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>State *</label>
+          <input
+            type="text"
+            placeholder="IL"
+            value={state}
+            onChange={(e) => setState(e.target.value.toUpperCase())}
+            style={inputStyle}
+            maxLength={2}
+          />
+        </div>
+      </div>
+      <div>
+        <label style={{ ...labelStyle }}>
+          Zip Code{" "}
+          <span style={{ fontWeight: 400, textTransform: "none", opacity: 0.55, letterSpacing: 0 }}>
+            (optional)
+          </span>
+        </label>
+        <input
+          type="text"
+          placeholder="62701"
+          value={zip}
+          onChange={(e) => setZip(e.target.value)}
+          style={inputStyle}
+          maxLength={10}
+        />
+      </div>
+      {error && (
+        <p style={{ color: "#f87171", fontSize: "11px", margin: 0 }}>{error}</p>
+      )}
+      <button
+        type="submit"
+        style={{
+          background: "linear-gradient(135deg, #3b82f6, #6366f1)",
+          color: "#fff",
+          border: "none",
+          borderRadius: "10px",
+          padding: "9px 18px",
+          fontSize: "13px",
+          fontWeight: 600,
+          cursor: "pointer",
+          alignSelf: "flex-end",
+          marginTop: "2px",
+        }}
+      >
+        Submit Address
+      </button>
+    </form>
+  );
+}
+
 export default function ChatWidget({ businessId, businessName }: ChatWidgetProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionToken, setSessionToken] = useState<string | undefined>();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showAddressForm, setShowAddressForm] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, showAddressForm]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -47,11 +169,9 @@ export default function ChatWidget({ businessId, businessName }: ChatWidgetProps
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [input]);
 
-  async function send() {
-    const text = input.trim();
+  async function sendText(text: string) {
     if (!text || loading) return;
 
-    setInput("");
     setMessages((prev) => [...prev, { role: "user", text }]);
     setLoading(true);
 
@@ -67,7 +187,11 @@ export default function ChatWidget({ businessId, businessName }: ChatWidgetProps
       if (data.sessionToken) setSessionToken(data.sessionToken);
 
       if (data.success && data.aiReplyText) {
-        setMessages((prev) => [...prev, { role: "assistant", text: data.aiReplyText! }]);
+        const raw = data.aiReplyText;
+        const hasForm = raw.includes(ADDRESS_FORM_MARKER);
+        const displayText = raw.replace(ADDRESS_FORM_MARKER, "").trim();
+        setMessages((prev) => [...prev, { role: "assistant", text: displayText }]);
+        if (hasForm) setShowAddressForm(true);
       } else if (!data.success) {
         setMessages((prev) => [
           ...prev,
@@ -82,6 +206,18 @@ export default function ChatWidget({ businessId, businessName }: ChatWidgetProps
     } finally {
       setLoading(false);
     }
+  }
+
+  async function send() {
+    const text = input.trim();
+    if (!text || loading) return;
+    setInput("");
+    await sendText(text);
+  }
+
+  async function handleAddressSubmit(formatted: string) {
+    setShowAddressForm(false);
+    await sendText(formatted);
   }
 
   function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -215,6 +351,36 @@ export default function ChatWidget({ businessId, businessName }: ChatWidgetProps
               </div>
             </div>
           ))}
+
+          {/* Inline address form — appears after AI requests it */}
+          {showAddressForm && !loading && (
+            <div className="animate-msg-in flex items-start gap-2.5">
+              <div
+                className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                style={{
+                  background: "linear-gradient(135deg, #3b82f6, #6366f1)",
+                  boxShadow: "0 0 10px rgba(99,102,241,0.3)",
+                }}
+              >
+                {initials[0]}
+              </div>
+              <div
+                className="rounded-2xl px-4 py-4"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                  borderBottomLeftRadius: "4px",
+                  flex: 1,
+                  minWidth: 0,
+                }}
+              >
+                <p className="mb-3 text-xs" style={{ color: "#71717a" }}>
+                  Fill in your address:
+                </p>
+                <AddressForm onSubmit={(formatted) => void handleAddressSubmit(formatted)} />
+              </div>
+            </div>
+          )}
 
           {/* Typing indicator */}
           {loading && (
