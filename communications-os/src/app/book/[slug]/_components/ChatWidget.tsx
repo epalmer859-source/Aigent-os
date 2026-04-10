@@ -30,6 +30,101 @@ function SendIcon() {
   );
 }
 
+// ── Slot buttons — rendered when AI presents appointment options ──
+
+interface ParsedSlots {
+  intro: string;
+  slots: { index: number; label: string }[];
+  outro: string;
+}
+
+function parseSlotMessage(text: string): ParsedSlots | null {
+  // Match the format produced by the booking pipeline:
+  // "Here are the available time slots:\n\n1. Today 8:00 AM – 11:30 AM with Jake\n2. ...\n\nWhich option..."
+  const slotLineRegex = /^(\d+)\.\s+(.+)$/;
+  const lines = text.split("\n");
+
+  const slotLines: { index: number; label: string }[] = [];
+  let introEnd = -1;
+  let outroStart = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i]!.trim().match(slotLineRegex);
+    if (match) {
+      if (introEnd === -1) introEnd = i;
+      slotLines.push({ index: parseInt(match[1]!, 10), label: match[2]! });
+      outroStart = i + 1;
+    }
+  }
+
+  if (slotLines.length < 2) return null; // Need at least 2 slots to render as buttons
+
+  const intro = lines.slice(0, introEnd).join("\n").trim();
+  const outro = lines.slice(outroStart).join("\n").trim();
+
+  return { intro, slots: slotLines, outro };
+}
+
+interface SlotButtonsProps {
+  parsed: ParsedSlots;
+  onSelect: (slotIndex: number, label: string) => void;
+  disabled: boolean;
+}
+
+function SlotButtons({ parsed, onSelect, disabled }: SlotButtonsProps) {
+  return (
+    <div>
+      {parsed.intro && (
+        <p style={{ marginBottom: "12px" }}>{parsed.intro}</p>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        {parsed.slots.map((slot) => (
+          <button
+            key={slot.index}
+            onClick={() => onSelect(slot.index, slot.label)}
+            disabled={disabled}
+            style={{
+              width: "100%",
+              textAlign: "left",
+              padding: "12px 16px",
+              borderRadius: "12px",
+              border: "1px solid rgba(99,102,241,0.25)",
+              background: "rgba(99,102,241,0.06)",
+              color: "#e4e4e7",
+              fontSize: "13px",
+              fontWeight: 500,
+              cursor: disabled ? "not-allowed" : "pointer",
+              opacity: disabled ? 0.5 : 1,
+              transition: "all 150ms ease",
+              lineHeight: "1.4",
+            }}
+            onMouseEnter={(e) => {
+              if (!disabled) {
+                e.currentTarget.style.background = "rgba(99,102,241,0.15)";
+                e.currentTarget.style.borderColor = "rgba(99,102,241,0.45)";
+                e.currentTarget.style.transform = "translateY(-1px)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(99,102,241,0.06)";
+              e.currentTarget.style.borderColor = "rgba(99,102,241,0.25)";
+              e.currentTarget.style.transform = "translateY(0)";
+            }}
+          >
+            <span style={{ color: "#818cf8", fontWeight: 700, marginRight: "8px" }}>
+              {slot.index}.
+            </span>
+            {slot.label}
+          </button>
+        ))}
+      </div>
+      {parsed.outro && (
+        <p style={{ marginTop: "12px", color: "#a1a1aa", fontSize: "12px" }}>{parsed.outro}</p>
+      )}
+    </div>
+  );
+}
+
 interface AddressFormProps {
   onSubmit: (formatted: string) => void;
 }
@@ -344,7 +439,23 @@ export default function ChatWidget({ businessId, businessName }: ChatWidgetProps
                       }
                 }
               >
-                {msg.text}
+                {(() => {
+                  if (msg.role === "assistant") {
+                    const parsed = parseSlotMessage(msg.text);
+                    if (parsed) {
+                      return (
+                        <SlotButtons
+                          parsed={parsed}
+                          onSelect={(slotIndex) => {
+                            void sendText(`Option ${slotIndex}`);
+                          }}
+                          disabled={loading}
+                        />
+                      );
+                    }
+                  }
+                  return msg.text;
+                })()}
               </div>
             </div>
           ))}
