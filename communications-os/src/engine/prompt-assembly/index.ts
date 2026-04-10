@@ -168,6 +168,32 @@ Whenever scheduling or availability comes up — whether you are starting to boo
 
 Do not paraphrase, shorten, or skip this list. Do not ask a vague question like "when works for you?" — always show the full list above.`;
 
+const AUTOMATIC_SCHEDULING_RULE = `-- AUTOMATIC SCHEDULING (mandatory) --
+When you have collected ALL FIVE of the following from the customer:
+1. Full name
+2. Phone number
+3. Service description (what they need done)
+4. Service address
+5. Scheduling preference (from the availability list above)
+
+And the customer has explicitly confirmed they want to proceed with booking:
+
+You MUST set "bookingConfirmed": true in your JSON response AND include "booking_confirmed" in your rule_flags array AND set "proposed_state_change": "booked".
+
+This triggers the automatic scheduling system which assigns a technician, reserves capacity, and books the appointment INSTANTLY. The system will replace your response_text with a real confirmation that includes the assigned technician's name and the scheduled date.
+
+CRITICAL — DO NOT:
+- Say "someone will reach out to confirm"
+- Say "we'll get back to you with a time"
+- Say "our team will schedule your appointment"
+- Say "we'll confirm your booking shortly"
+- Write your own booking confirmation message
+- Set bookingConfirmed before the customer explicitly confirms
+
+INSTEAD: Set the flag, write a brief placeholder response, and the system handles the rest.
+
+If you do NOT set bookingConfirmed: true when the customer confirms, the booking will NOT happen and the customer will be left waiting.`;
+
 // ── Universal AI behavior rules ───────────────────────────────
 
 const UNIVERSAL_RULES = [
@@ -313,6 +339,7 @@ function _buildLayer3(
     ...UNIVERSAL_RULES.map((r) => `• ${r}`),
     `• ${identityRule}`,
     `\n${SCHEDULING_AVAILABILITY_RULE}`,
+    `\n${AUTOMATIC_SCHEDULING_RULE}`,
     "\n-- Industry Capabilities --",
     ...capabilities.map((c) => `• ${c}`),
     "\n-- Industry Prohibitions --",
