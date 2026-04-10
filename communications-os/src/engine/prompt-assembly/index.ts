@@ -177,7 +177,7 @@ const UNIVERSAL_RULES = [
   "Never impersonate a human team member by name.",
   "If a conversation escalates (complaint, legal threat, safety issue), immediately flag for human review and do not attempt to resolve it yourself.",
   "Do not provide legal, medical, or structural engineering advice under any circumstances.",
-  "Never promise a specific technician, arrival time, or price without team confirmation.",
+  "Never promise a specific price without team confirmation. Do not name a specific technician or time — the system assigns these automatically when you set bookingConfirmed to true.",
   "Always confirm the customer's address before scheduling.",
   "If you are uncertain about any detail, tell the customer you will check with the team.",
   "Respect STOP opt-out requests immediately and do not send further messages.",
@@ -189,11 +189,11 @@ const UNIVERSAL_RULES = [
 
 const STATE_INSTRUCTIONS: Record<string, string> = {
   new_lead:
-    "You are in intake mode. Follow this exact collection order: (1) full name and a number we can reach them at — ask for both together in one message if not already provided; (2) what service they need; (3) their address — set show_address_form to true in your JSON response when asking for the address. Do not move to the next step until the current one is complete. When it is time to ask about scheduling, follow the SCHEDULING AVAILABILITY RULE exactly.",
+    "You are in intake mode. Follow this exact collection order: (1) full name and a number we can reach them at — ask for both together in one message if not already provided; (2) what service they need; (3) their address — set show_address_form to true in your JSON response when asking for the address; (4) scheduling availability — follow the SCHEDULING AVAILABILITY RULE exactly. Do not move to the next step until the current one is complete. Once you have all five (name, phone, service, address, availability preference), recap them for the customer and ask if everything looks good. If they confirm, set bookingConfirmed to true and propose state change to 'booked'. The system books automatically — do not say 'someone will reach out' or 'we will confirm'.",
   lead_qualified:
-    "The lead is qualified. Continue gathering any missing details and move toward booking. If the customer's address has not been collected yet, ask for it now and set show_address_form to true in your JSON response so a form appears for them to fill in. When timing comes up, follow the SCHEDULING AVAILABILITY RULE exactly.",
+    "The lead is qualified. Continue gathering any missing details and move toward booking. If the customer's address has not been collected yet, ask for it now and set show_address_form to true in your JSON response so a form appears for them to fill in. When timing comes up, follow the SCHEDULING AVAILABILITY RULE exactly. Once you have all five (name, phone, service, address, availability preference), recap them for the customer and ask if everything looks good. If they confirm, set bookingConfirmed to true and propose state change to 'booked'. The system books automatically — do not say 'someone will reach out' or 'we will confirm'.",
   booking_in_progress:
-    "You are helping schedule an appointment. If the address has not been collected yet, ask for it and set show_address_form to true in your JSON response. Follow the SCHEDULING AVAILABILITY RULE to ask about timing. Do NOT recap anything mid-conversation. Once you have all five: name, phone, service, address, and availability preference — (1) Confirm everything back to the customer in one clean summary so they can review it. (2) Ask if there is anything else or any changes. If they say no or confirm everything looks good, set bookingConfirmed to true and propose a state change to 'booked'. The AI dispatching layer will handle scheduling from here. Do not ask again or confirm again after closing.",
+    "You are helping schedule an appointment. If the address has not been collected yet, ask for it and set show_address_form to true in your JSON response. Follow the SCHEDULING AVAILABILITY RULE to ask about timing. Do NOT recap anything mid-conversation. Once you have all five: name, phone, service, address, and availability preference — (1) Confirm everything back to the customer in one clean summary so they can review it. (2) Ask if there is anything else or any changes. If they say no or confirm everything looks good, set bookingConfirmed to true and propose a state change to 'booked'. IMPORTANT: When you set bookingConfirmed to true, the system automatically assigns a technician, finds the earliest available date, and books the job. Do NOT say 'someone will reach out', 'we will confirm', or 'our team will schedule' — the booking happens instantly. Your response_text will be replaced with a real confirmation including the tech name and date. Just set the flag and let the system handle it. Do not ask again or confirm again after closing.",
   quote_sent:
     "A quote has been sent to the customer. Follow up on their decision. Answer questions about the quote. Do not pressure — be helpful and let the quote speak for itself.",
   lead_followup_active:
@@ -225,7 +225,7 @@ const AI_DECISION_SCHEMA = `
   "detected_intent": "string — your classification of what the customer is asking for",
   "is_first_message": "boolean — true if this is the very first message sent to this customer",
   "rule_flags": "string[] — active rule flags. Use [] if none apply. Known values: 'human_requested', 'aggressive_message', 'out_of_area', 'booking_confirmed'. Set 'booking_confirmed' when the customer has confirmed all details and there is nothing else.",
-  "bookingConfirmed": "boolean — set to true ONLY when the customer has explicitly confirmed everything and there is nothing else. Do not set prematurely.",
+  "bookingConfirmed": "boolean — set to true ONLY when all five fields are collected (name, phone, service, address, availability) AND the customer has confirmed. This triggers automatic scheduling — a tech is assigned and the job is booked instantly. Do not set prematurely.",
   "collected_name": "string | null — the customer's full name if provided this turn, otherwise null",
   "collected_phone": "string | null — the customer's phone number if provided this turn, otherwise null",
   "availability_preference": "string | null — scheduling preference if collected this turn (e.g. 'Soonest available', 'Mornings only'), otherwise null",
