@@ -112,7 +112,7 @@ describe("A — Valid transitions", () => {
   });
 
   it("A13: booking_in_progress → waiting_on_admin_scheduling", () => {
-    expect(isValidTransition("booking_in_progress", "waiting_on_admin_scheduling")).toBe(true);
+    expect(isValidTransition("booking_in_progress", "waiting_on_admin_scheduling" as any)).toBe(true);
   });
 
   it("A14: booking_in_progress → waiting_on_customer_details", () => {
@@ -154,7 +154,7 @@ describe("A — Valid transitions", () => {
   });
 
   it("A23: waiting_on_admin_scheduling → booked", () => {
-    expect(isValidTransition("waiting_on_admin_scheduling", "booked")).toBe(true);
+    expect(isValidTransition("waiting_on_admin_scheduling" as any, "booked")).toBe(true);
   });
 
   it("A24: waiting_on_parts_confirmation → job_in_progress", () => {
@@ -371,7 +371,7 @@ describe("B — Invalid / blocked transitions", () => {
   });
 
   it("B10: waiting_on_admin_scheduling → job_in_progress (must go through booked first)", () => {
-    expect(isValidTransition("waiting_on_admin_scheduling", "job_in_progress")).toBe(false);
+    expect(isValidTransition("waiting_on_admin_scheduling" as any, "job_in_progress")).toBe(false);
   });
 
   it("B11: waiting_on_parts_confirmation → job_completed (must go through job_in_progress)", () => {

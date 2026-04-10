@@ -719,6 +719,17 @@ export function _getQueueStatusForTest(id: string): string | undefined {
   return _outboundQueue.get(id)?.status;
 }
 
+const _appointmentChangeRequests = new Map<string, { id: string; conversationId: string; businessId: string; requestStatus: string }>();
+
+export function _seedAppointmentChangeRequestForTest(data: {
+  id: string;
+  conversationId: string;
+  businessId: string;
+  requestStatus: string;
+}): void {
+  _appointmentChangeRequests.set(data.id, { ...data });
+}
+
 // ── Production Prisma implementation for shouldSendMessage ────
 
 async function _shouldSendMessageFromDb(context: MessageContext): Promise<SuppressionResult> {

@@ -52,7 +52,7 @@ function mockFailFetch() {
 const silentLogger = { warn: vi.fn() };
 
 function deps(fetchFn: ReturnType<typeof vi.fn>): OsrmServiceDeps {
-  return { baseUrl: "http://test:5000", fetchFn, logger: silentLogger };
+  return { baseUrl: "http://test:5000", fetchFn: fetchFn as unknown as typeof fetch, logger: silentLogger };
 }
 
 // ── getDriveTime ──────────────────────────────────────────────────────────────

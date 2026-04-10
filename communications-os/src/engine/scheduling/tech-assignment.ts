@@ -173,7 +173,7 @@ export function rankTechs(scoredTechs: ScoredTechInput[]): TechScore[] {
   const maxDrive = Math.max(...scoredTechs.map((t) => t.driveTimeMinutes));
   const maxCapacity = Math.max(...scoredTechs.map((t) => t.remainingCapacityMinutes));
 
-  const scored: TechScore[] = scoredTechs.map((t, inputIndex) => {
+  const scored: (TechScore & { _inputIndex: number })[] = scoredTechs.map((t, inputIndex) => {
     const proximityScore = maxDrive > 0
       ? 1 - (t.driveTimeMinutes / maxDrive)
       : 1;

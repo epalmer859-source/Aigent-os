@@ -198,12 +198,12 @@ function _getConvForAction(
 function _failResult(
   action: string,
   error: string,
-  conversationId?: string,
+  conversationId?: string | null,
 ): AdminActionResult {
   return {
     success: false,
     action,
-    conversationId,
+    conversationId: conversationId ?? undefined,
     stateChanged: false,
     notificationsQueued: [],
     queueRowsCanceled: 0,
@@ -215,7 +215,7 @@ function _failResult(
 function _okResult(
   action: string,
   opts: {
-    conversationId?: string;
+    conversationId?: string | null;
     stateChanged?: boolean;
     newState?: string;
     notificationsQueued?: string[];
@@ -226,7 +226,7 @@ function _okResult(
   return {
     success: true,
     action,
-    conversationId: opts.conversationId,
+    conversationId: opts.conversationId ?? undefined,
     stateChanged: opts.stateChanged ?? false,
     newState: opts.newState,
     notificationsQueued: opts.notificationsQueued ?? [],
@@ -804,7 +804,7 @@ async function _cancelPendingOutboundFromDb(
     await tx.event_log.create({
       data: {
         business_id: actor.businessId,
-        conversation_id: conversationId,
+        conversation_id: conversationId!,
         event_code: "outbound_message_canceled_by_admin",
         event_family: "admin_action" as any,
         source_actor: src as any,
@@ -1447,6 +1447,7 @@ export function _resetAdminActionsStoreForTest(): void {
   _users.clear();
   _eventLogs.length = 0;
   _messageLogs.length = 0;
+  _appointments.clear();
 }
 
 export function _seedConversationForTest(data: Record<string, unknown>): void {
@@ -1547,4 +1548,37 @@ export function _getPendingQueueRowsByBusinessForTest(
     const conv = _conversations.get(r.conversationId);
     return conv?.businessId === businessId && r.status === "pending";
   });
+}
+
+// ── Scheduling-era stub exports ──────────────────────────────
+// These admin actions were replaced by the scheduling engine.
+// Stubs exist so test files compile; they throw at runtime.
+
+const _appointments = new Map<string, Record<string, unknown>>();
+
+function _notImplemented(name: string): never {
+  throw new Error(`${name} was replaced by the scheduling engine`);
+}
+
+export async function placeAppointment(_actor: ActorContext, _params: Record<string, unknown>): Promise<AdminActionResult> { _notImplemented("placeAppointment"); }
+export async function rescheduleAppointment(_actor: ActorContext, _params: Record<string, unknown>): Promise<AdminActionResult> { _notImplemented("rescheduleAppointment"); }
+export async function cancelAppointment(_actor: ActorContext, _params: Record<string, unknown>): Promise<AdminActionResult> { _notImplemented("cancelAppointment"); }
+export async function assignTechnician(_actor: ActorContext, _params: Record<string, unknown>): Promise<AdminActionResult> { _notImplemented("assignTechnician"); }
+export async function markEnRoute(_actor: ActorContext, _params: Record<string, unknown>): Promise<AdminActionResult> { _notImplemented("markEnRoute"); }
+export async function markDelayed(_actor: ActorContext, _params: Record<string, unknown>): Promise<AdminActionResult> { _notImplemented("markDelayed"); }
+export async function markJobInProgress(_actor: ActorContext, _params: Record<string, unknown>): Promise<AdminActionResult> { _notImplemented("markJobInProgress"); }
+export async function markJobPaused(_actor: ActorContext, _params: Record<string, unknown>): Promise<AdminActionResult> { _notImplemented("markJobPaused"); }
+export async function markJobComplete(_actor: ActorContext, _params: Record<string, unknown>): Promise<AdminActionResult> { _notImplemented("markJobComplete"); }
+export async function markNoShow(_actor: ActorContext, _params: Record<string, unknown>): Promise<AdminActionResult> { _notImplemented("markNoShow"); }
+
+export function _seedAppointmentForTest(data: Record<string, unknown>): void {
+  _appointments.set(data["id"] as string, data);
+}
+
+export function _getAppointmentForTest(id: string): Record<string, unknown> | undefined {
+  return _appointments.get(id);
+}
+
+export function _getAppointmentByConversationForTest(conversationId: string): Record<string, unknown> | undefined {
+  return [..._appointments.values()].find((a) => a["conversationId"] === conversationId);
 }
