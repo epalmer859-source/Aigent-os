@@ -308,6 +308,7 @@ exports.Prisma.ConversationsScalarFieldEnum = {
   contact_display_name: 'contact_display_name',
   channel: 'channel',
   collected_service_address: 'collected_service_address',
+  pending_booking_slots: 'pending_booking_slots',
   cached_summary: 'cached_summary',
   summary_updated_at: 'summary_updated_at',
   last_customer_message_id: 'last_customer_message_id',

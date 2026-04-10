@@ -264,6 +264,7 @@ model conversations {
   contact_display_name                                                             String?
   channel                                                                          String
   collected_service_address                                                        String?
+  pending_booking_slots                                                            Json?
   cached_summary                                                                   String?
   summary_updated_at                                                               DateTime?                           @db.Timestamptz(6)
   last_customer_message_id                                                         String?                             @db.Uuid

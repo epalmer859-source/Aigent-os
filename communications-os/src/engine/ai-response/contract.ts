@@ -27,10 +27,20 @@ export interface AIDecision {
   /** Target state for a transition, or null if no change proposed. */
   proposed_state_change: string | null;
   /**
-   * Explicit confirmation that the customer approved everything and there is nothing else.
-   * When true, triggers the scheduling request to admin + confirmation SMS.
+   * Step 1: Set true when all five fields are collected and customer confirms.
+   * Triggers slot generation (not immediate booking).
    */
   bookingConfirmed?: boolean;
+  /**
+   * Step 2: Set true by the system after slots have been presented to the customer.
+   * When this is true in conversation context, the AI waits for slot selection.
+   */
+  slotsPresented?: boolean;
+  /**
+   * Step 2: The slot the customer selected, parsed by the AI from their reply.
+   * Contains the index (1-based) from the presented slot list.
+   */
+  selectedSlot?: number | null;
   /** Customer's full name if just collected in this turn — used to title the conversation. */
   collected_name?: string | null;
   /** Customer's callback phone number if just collected in this turn — used to title the conversation. */

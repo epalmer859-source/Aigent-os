@@ -606,25 +606,24 @@ async function _generateAIResponseFromDb(
 
   console.log('[ai-response] parsed decision:', JSON.stringify(effectiveDecision, null, 2));
 
-  // ── AI Booking Pipeline — automated dispatch on bookingConfirmed ─────────
-  // When Claude sets bookingConfirmed: true (or rule_flags includes "booking_confirmed"),
-  // run the full booking pipeline: classify service → find date → assign tech → book job.
-  // On success, override responseText with confirmation; on failure, inform the customer.
+  // ── AI Booking Pipeline — Two-Step Slot Flow ────────────────────────────
+  // Step 1: bookingConfirmed + no selectedSlot → generate slots, present to customer
+  // Step 2: bookingConfirmed + selectedSlot → book that exact slot
   console.log('[ai-response] booking check:', {
     bookingConfirmed: effectiveDecision.bookingConfirmed,
+    selectedSlot: effectiveDecision.selectedSlot,
     ruleFlags: effectiveDecision.rule_flags,
     proposedState: effectiveDecision.proposed_state_change,
   });
-  const bookingConfirmed = effectiveDecision.bookingConfirmed === true || flags.includes("booking_confirmed");
+  const bookingTriggered = effectiveDecision.bookingConfirmed === true || flags.includes("booking_confirmed");
+  const selectedSlotIndex = effectiveDecision.selectedSlot ?? null;
   let bookingResponseOverride: string | null = null;
 
-  if (bookingConfirmed) {
-    console.log("[ai-response] bookingConfirmed detected, running AI booking pipeline");
+  if (bookingTriggered) {
     try {
-      const aiBookingModule = await import("~/engine/scheduling/ai-booking-pipeline");
+      const { generateAvailableSlots, bookSelectedSlot } = await import("~/engine/scheduling/ai-booking-pipeline");
       const { createBookingOrchestratorDb, createCapacityDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
       const { randomUUID } = await import("crypto");
-      const runAIBookingPipeline = aiBookingModule.runAIBookingPipeline;
 
       // Gather customer data from the decision and conversation
       const collectedName = effectiveDecision.collected_name
@@ -633,7 +632,7 @@ async function _generateAIResponseFromDb(
         ?? (effectiveDecision as unknown as Record<string, unknown>)["collected_service_address"] as string | null | undefined;
       const availabilityPref = effectiveDecision.availability_preference ?? null;
 
-      // If we have address this turn, persist it on the conversation
+      // Persist address if collected this turn
       if (collectedAddress) {
         await db.conversations.update({
           where: { id: conversationId },
@@ -641,17 +640,7 @@ async function _generateAIResponseFromDb(
         });
       }
 
-      // Look up existing collected_service_address if not provided this turn
-      let addressText = collectedAddress ?? "";
-      if (!addressText) {
-        const convAddr = await db.conversations.findUnique({
-          where: { id: conversationId },
-          select: { collected_service_address: true },
-        });
-        addressText = convAddr?.collected_service_address ?? "";
-      }
-
-      // Look up customer name if not in this turn's decision
+      // Look up customer name
       let customerName = collectedName ?? "";
       if (!customerName) {
         const convTitle = await db.conversations.findUnique({
@@ -661,102 +650,168 @@ async function _generateAIResponseFromDb(
         customerName = convTitle?.contact_display_name ?? "Customer";
       }
 
-      // Build service description from detected_intent
-      const serviceDescription = effectiveDecision.detected_intent ?? "";
+      // ── STEP 2: Customer selected a slot → book it ─────────────────
+      if (selectedSlotIndex !== null && selectedSlotIndex > 0) {
+        console.log("[ai-response] STEP 2 — booking selected slot:", selectedSlotIndex);
 
-      // Wire up dependencies from Prisma
-      const capacityDb = createCapacityDb(db);
-      const bookingDb = createBookingOrchestratorDb(db);
+        // Load stored slots from conversation
+        const convSlots = await db.conversations.findUnique({
+          where: { id: conversationId },
+        }) as unknown as { pending_booking_slots?: unknown } | null;
+        const storedSlots = (Array.isArray(convSlots?.pending_booking_slots) ? convSlots.pending_booking_slots : []) as Array<Record<string, unknown>>;
 
-      const bookingDeps = {
-        capacityDb,
-        bookingDb,
-        generateId: () => randomUUID(),
+        if (storedSlots.length === 0) {
+          console.warn("[ai-response] no stored slots found for selection");
+          bookingResponseOverride = "I don't have any available slots on file. Let me check availability again — one moment.";
+          // Force back to step 1 by clearing selectedSlot
+          effectiveDecision.proposed_state_change = null;
+        } else {
+          const pickedSlot = storedSlots.find((s) => s.index === selectedSlotIndex) as unknown as import("~/engine/scheduling/ai-booking-pipeline").AvailableSlot | undefined;
+          if (!pickedSlot) {
+            bookingResponseOverride = `That option isn't available. Please pick a number between 1 and ${storedSlots.length} from the list above.`;
+            effectiveDecision.proposed_state_change = null;
+          } else {
+            // Look up address
+            let addressText = collectedAddress ?? "";
+            if (!addressText) {
+              const convAddr = await db.conversations.findUnique({
+                where: { id: conversationId },
+                select: { collected_service_address: true },
+              });
+              addressText = convAddr?.collected_service_address ?? "";
+            }
 
-        async getTechCandidates(bizId: string) {
-          const techs = await db.technicians.findMany({
-            where: { business_id: bizId, is_active: true },
-            include: { skill_tags: true, scheduling_jobs: { where: { status: { in: ["NOT_STARTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] }, scheduled_date: new Date() }, select: { id: true } } },
-          });
-          return techs.map((t) => ({
-            id: t.id,
-            businessId: t.business_id,
-            name: t.name,
-            homeBaseLat: t.home_base_lat,
-            homeBaseLng: t.home_base_lng,
-            skillTags: t.skill_tags.map((s) => s.service_type_id),
-            workingHoursStart: t.working_hours_start,
-            workingHoursEnd: t.working_hours_end,
-            lunchStart: t.lunch_start,
-            lunchEnd: t.lunch_end,
-            overtimeCapMinutes: t.overtime_cap_minutes,
-            isActive: t.is_active,
-            existingJobsToday: t.scheduling_jobs.length,
-          }));
-        },
+            const bookingDb = createBookingOrchestratorDb(db);
+            const result = await bookSelectedSlot({
+              businessId,
+              customerId,
+              customerName,
+              addressText,
+              slot: pickedSlot,
+            }, {
+              bookingDb,
+              generateId: () => randomUUID(),
+            });
 
-        async getServiceTypes(bizId: string) {
-          const rows = await db.service_types.findMany({ where: { business_id: bizId } });
-          return rows.map((r) => ({
-            id: r.id,
-            name: r.name,
-            industry: r.industry,
-            baseDurationMinutes: r.base_duration_minutes,
-            volatilityTier: r.volatility_tier as "LOW" | "MEDIUM" | "HIGH",
-            symptomPhrases: Array.isArray(r.symptom_phrases) ? r.symptom_phrases as string[] : [],
-            propertyTypeVariants: r.property_type_variants as Record<string, number> | undefined,
-          }));
-        },
+            if (result.booked) {
+              // Format date relative to today
+              const now = new Date();
+              const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+              const schedMid = new Date(result.scheduledDate.getFullYear(), result.scheduledDate.getMonth(), result.scheduledDate.getDate());
+              const dayDiff = Math.round((schedMid.getTime() - todayMid.getTime()) / 86400000);
+              let dateStr: string;
+              if (dayDiff === 0) dateStr = "today";
+              else if (dayDiff === 1) dateStr = "tomorrow";
+              else dateStr = result.scheduledDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
-        async getBusinessIndustry(bizId: string) {
-          const biz = await db.businesses.findUniqueOrThrow({ where: { id: bizId }, select: { industry: true } });
-          return biz.industry;
-        },
-      };
+              const queueNote = result.queuePosition === 0 ? " You're first on the schedule." : result.queuePosition === 1 ? " You're second on the schedule." : "";
 
-      const result = await runAIBookingPipeline({
-        businessId,
-        conversationId,
-        customerId,
-        customerName,
-        serviceDescription,
-        addressText,
-        availabilityPreference: availabilityPref,
-      }, bookingDeps);
+              let bizPhone = "";
+              try {
+                const biz = await db.businesses.findUnique({ where: { id: businessId }, select: { preferred_phone_number: true } });
+                if (biz?.preferred_phone_number) bizPhone = ` If anything changes, reach us at ${biz.preferred_phone_number}.`;
+              } catch { /* non-critical */ }
 
-      if (result.booked) {
-        // Format date relative to today
-        const now = new Date();
-        const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const scheduledMidnight = new Date(result.scheduledDate.getFullYear(), result.scheduledDate.getMonth(), result.scheduledDate.getDate());
-        const dayDiff = Math.round((scheduledMidnight.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24));
-        let dateStr: string;
-        if (dayDiff === 0) dateStr = "today";
-        else if (dayDiff === 1) dateStr = "tomorrow";
-        else dateStr = result.scheduledDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+              bookingResponseOverride = `Great news, ${customerName}! Your appointment is booked — ${result.techName} will be heading your way ${dateStr}.${queueNote} We'll send you a heads-up when they're on the way.${bizPhone}`;
+              console.log("[ai-response] STEP 2 SUCCESS — jobId:", result.jobId, "tech:", result.techName, "date:", dateStr);
 
-        const queueNote = result.queuePosition === 0 ? " You're first on the schedule." : result.queuePosition === 1 ? " You're second on the schedule." : "";
+              // Clear stored slots
+              await db.conversations.update({
+                where: { id: conversationId },
+                data: { pending_booking_slots: null } as never,
+              });
+            } else {
+              bookingResponseOverride = `That slot is no longer available — someone else may have grabbed it. Let me check for updated availability.`;
+              effectiveDecision.proposed_state_change = null;
+              console.warn("[ai-response] STEP 2 booking failed:", result.reason);
+            }
+          }
+        }
 
-        // Look up business phone for the confirmation message
-        let bizPhone = "";
-        try {
-          const biz = await db.businesses.findUnique({ where: { id: businessId }, select: { preferred_phone_number: true } });
-          if (biz?.preferred_phone_number) bizPhone = ` If anything changes, reach us at ${biz.preferred_phone_number}.`;
-        } catch { /* non-critical */ }
-
-        bookingResponseOverride = `Great news, ${customerName}! Your appointment is booked — ${result.techName} will be heading your way ${dateStr}.${queueNote} We'll send you a heads-up when they're on the way.${bizPhone}`;
-        console.log("[ai-response] booking pipeline SUCCESS — jobId:", result.jobId, "tech:", result.techName, "date:", dateStr, "queuePos:", result.queuePosition);
+      // ── STEP 1: Generate slots and present to customer ─────────────
       } else {
-        bookingResponseOverride = `I've collected all your details. Our team is reviewing availability and will confirm your appointment shortly. We'll reach out as soon as everything is set!`;
-        console.warn("[ai-response] booking pipeline could not auto-book:", result.reason);
-        // Don't block the state transition — the conversation still moves to "booked"
-        // and the admin can manually schedule if auto-dispatch failed.
+        console.log("[ai-response] STEP 1 — generating available slots");
+
+        const serviceDescription = effectiveDecision.detected_intent ?? "";
+        const capacityDb = createCapacityDb(db);
+
+        const slotDeps = {
+          capacityDb,
+          async getTechCandidates(bizId: string) {
+            const techs = await db.technicians.findMany({
+              where: { business_id: bizId, is_active: true },
+              include: { skill_tags: true, scheduling_jobs: { where: { status: { in: ["NOT_STARTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] }, scheduled_date: new Date() }, select: { id: true } } },
+            });
+            return techs.map((t) => ({
+              id: t.id,
+              businessId: t.business_id,
+              name: t.name,
+              homeBaseLat: t.home_base_lat,
+              homeBaseLng: t.home_base_lng,
+              skillTags: t.skill_tags.map((s: { service_type_id: string }) => s.service_type_id),
+              workingHoursStart: t.working_hours_start,
+              workingHoursEnd: t.working_hours_end,
+              lunchStart: t.lunch_start,
+              lunchEnd: t.lunch_end,
+              overtimeCapMinutes: t.overtime_cap_minutes,
+              isActive: t.is_active,
+              existingJobsToday: t.scheduling_jobs.length,
+            }));
+          },
+          async getServiceTypes(bizId: string) {
+            const rows = await db.service_types.findMany({ where: { business_id: bizId } });
+            return rows.map((r) => ({
+              id: r.id,
+              name: r.name,
+              industry: r.industry,
+              baseDurationMinutes: r.base_duration_minutes,
+              volatilityTier: r.volatility_tier as "LOW" | "MEDIUM" | "HIGH",
+              symptomPhrases: Array.isArray(r.symptom_phrases) ? r.symptom_phrases as string[] : [],
+              propertyTypeVariants: r.property_type_variants as Record<string, number> | undefined,
+            }));
+          },
+          async getBusinessIndustry(bizId: string) {
+            const biz = await db.businesses.findUniqueOrThrow({ where: { id: bizId }, select: { industry: true } });
+            return biz.industry;
+          },
+          async getQueueForTechDate(technicianId: string, date: Date) {
+            const { createBookingOrchestratorDb: createBODb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+            const boDb = createBODb(db);
+            return boDb.getQueueForTechDate(technicianId, date);
+          },
+        };
+
+        const slotResult = await generateAvailableSlots({
+          businessId,
+          serviceDescription,
+          availabilityPreference: availabilityPref,
+        }, slotDeps);
+
+        if (slotResult.success) {
+          // Store slots on conversation for step 2
+          await db.conversations.update({
+            where: { id: conversationId },
+            data: { pending_booking_slots: slotResult.slots as unknown } as never,
+          });
+
+          // Format as numbered list
+          const slotLines = slotResult.slots.map((s) => `${s.index}. ${s.label}`);
+          bookingResponseOverride = `Here are the available time slots:\n\n${slotLines.join("\n")}\n\nWhich option works best for you? Just reply with the number.`;
+
+          // Force state to stay in booking_in_progress — do NOT transition to booked yet
+          effectiveDecision.proposed_state_change = null;
+          console.log("[ai-response] STEP 1 — presented", slotResult.slots.length, "slots");
+        } else {
+          bookingResponseOverride = `I wasn't able to find available time slots right now. Our team will follow up with you shortly to get your appointment scheduled.`;
+          effectiveDecision.proposed_state_change = null;
+          console.warn("[ai-response] STEP 1 — no slots:", slotResult.reason);
+        }
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[ai-response] booking pipeline error:", errMsg);
       bookingResponseOverride = `I've collected all your details. Our team will confirm your appointment shortly!`;
-      // Graceful degradation: let the conversation proceed
+      effectiveDecision.proposed_state_change = null;
     }
   }
 
