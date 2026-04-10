@@ -189,6 +189,11 @@ export function createCapacityDb(prisma: PrismaClient): CapacityDb {
     },
 
     async transaction<T>(fn: (tx: CapacityDb) => Promise<T>): Promise<T> {
+      // If prisma is already a transaction client ($transaction won't exist),
+      // run the callback directly — we're already inside a transaction.
+      if (typeof (prisma as unknown as Record<string, unknown>).$transaction !== "function") {
+        return fn(db);
+      }
       return prisma.$transaction(async (tx) => {
         const txCapDb = createCapacityDb(tx as unknown as PrismaClient);
         return fn(txCapDb);
@@ -362,6 +367,11 @@ export function createBookingOrchestratorDb(prisma: PrismaClient): BookingOrches
     },
 
     async transaction<T>(fn: (tx: BookingOrchestratorDb) => Promise<T>): Promise<T> {
+      // If prisma is already a transaction client ($transaction won't exist),
+      // run the callback directly — we're already inside a transaction.
+      if (typeof (prisma as unknown as Record<string, unknown>).$transaction !== "function") {
+        return fn(db);
+      }
       return prisma.$transaction(async (tx) => {
         const txDb = createBookingOrchestratorDb(tx as unknown as PrismaClient);
         return fn(txDb);
