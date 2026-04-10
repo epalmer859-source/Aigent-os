@@ -1,0 +1,302 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DESIGN TOKENS — dark (default) / light (html.light class)
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: dark;
+
+  /* Backgrounds */
+  --bg:           #0c0e15;
+  --bg-surface:   #131720;
+  --bg-elevated:  #1b2030;
+  --bg-hover:     rgba(255,255,255,0.04);
+  --bg-active:    rgba(59,130,246,0.10);
+
+  /* Borders */
+  --border:       rgba(255,255,255,0.07);
+  --border-strong:rgba(255,255,255,0.13);
+
+  /* Sidebar */
+  --sidebar-bg:   #0f1118;
+  --sidebar-border:rgba(255,255,255,0.06);
+
+  /* Text */
+  --t1: #f4f4f5;
+  --t2: #a1a1aa;
+  --t3: #71717a;
+
+  /* Accent */
+  --accent:       #3b82f6;
+  --accent-dim:   rgba(59,130,246,0.12);
+  --accent-text:  #60a5fa;
+
+  /* Input */
+  --input-bg:     rgba(255,255,255,0.04);
+  --input-border: rgba(255,255,255,0.10);
+
+  /* Skeleton */
+  --skeleton:     rgba(255,255,255,0.06);
+  --skeleton-hi:  rgba(255,255,255,0.10);
+}
+
+html.light {
+  color-scheme: light;
+
+  --bg:           #f0f2f7;
+  --bg-surface:   #ffffff;
+  --bg-elevated:  #f7f8fc;
+  --bg-hover:     rgba(0,0,0,0.03);
+  --bg-active:    rgba(37,99,235,0.07);
+
+  --border:       rgba(0,0,0,0.08);
+  --border-strong:rgba(0,0,0,0.14);
+
+  --sidebar-bg:   #ffffff;
+  --sidebar-border:rgba(0,0,0,0.07);
+
+  --t1: #0f172a;
+  --t2: #4b5563;
+  --t3: #9ca3af;
+
+  --accent:       #2563eb;
+  --accent-dim:   rgba(37,99,235,0.08);
+  --accent-text:  #2563eb;
+
+  --input-bg:     #ffffff;
+  --input-border: rgba(0,0,0,0.14);
+
+  --skeleton:     rgba(0,0,0,0.07);
+  --skeleton-hi:  rgba(0,0,0,0.11);
+}
+
+/* ── Utility classes ── */
+.t-bg       { background-color: var(--bg); }
+.t-surface  { background-color: var(--bg-surface); }
+.t-elevated { background-color: var(--bg-elevated); }
+.t-border   { border-color: var(--border); }
+.t-text1    { color: var(--t1); }
+.t-text2    { color: var(--t2); }
+.t-text3    { color: var(--t3); }
+
+/* ── Sidebar scrollbar ── */
+.sidebar-scroll::-webkit-scrollbar { width: 0; }
+
+/* ── Page content scrollbar ── */
+.content-scroll::-webkit-scrollbar { width: 6px; }
+.content-scroll::-webkit-scrollbar-track { background: transparent; }
+.content-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+.content-scroll::-webkit-scrollbar-thumb:hover { background: var(--t3); }
+
+/* ── Glow breathe — hero background pulse ── */
+@keyframes glow-breathe {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.15); }
+}
+.animate-glow-breathe {
+  animation: glow-breathe 6s ease-in-out infinite;
+}
+
+/* ── Secondary glow — offset pulse ── */
+@keyframes glow-breathe-slow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50%       { opacity: 0.7; transform: scale(1.2); }
+}
+.animate-glow-breathe-slow {
+  animation: glow-breathe-slow 9s ease-in-out infinite;
+}
+
+/* ── Bounce arrow — scroll indicator ── */
+@keyframes bounce-soft {
+  0%, 100% { transform: translateY(0);   opacity: 0.4; }
+  50%       { transform: translateY(6px); opacity: 0.9; }
+}
+.animate-bounce-soft {
+  animation: bounce-soft 2s ease-in-out infinite;
+}
+
+/* ── Float — subtle up/down ── */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-6px); }
+}
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+/* ── Shimmer — gradient sweep on text ── */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    #a1a1aa 0%,
+    #e4e4e7 40%,
+    #3b82f6 50%,
+    #e4e4e7 60%,
+    #a1a1aa 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 4s linear infinite;
+}
+
+/* ── Fade in up — base class ── */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.7s ease-out both;
+}
+
+/* ── Card hover glow — applied via group ── */
+.card-hover {
+  transition: border-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
+}
+.card-hover:hover {
+  border-color: #3f3f46;
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.06), 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Blue accent card hover ── */
+.card-hover-blue:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.06), 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Slide in from left ── */
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Scale entrance ── */
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── Event log new item slide ── */
+@keyframes event-slide-in {
+  from { opacity: 0; transform: translateY(-12px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+.animate-event-slide-in {
+  animation: event-slide-in 0.4s ease-out both;
+}
+
+/* ── Dot pulse — live indicator ── */
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.8); }
+}
+.animate-dot-pulse {
+  animation: dot-pulse 1.8s ease-in-out infinite;
+}
+
+/* ── Smooth scroll ── */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ── Native form controls inherit color-scheme so OS popup matches mode ── */
+select,
+input,
+textarea {
+  color-scheme: inherit;
+}
+
+/* ── Select: match app surface colors in both modes ── */
+:root select {
+  background-color: var(--bg-elevated) !important;
+  color: var(--t1) !important;
+  border-color: var(--input-border) !important;
+}
+
+html.light select {
+  background-color: var(--input-bg) !important;
+  color: var(--t1) !important;
+  border-color: var(--input-border) !important;
+}
+
+/* ── Chat message pop-in ── */
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.animate-msg-in {
+  animation: msg-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ── Typing dot wave ── */
+@keyframes typing-dot {
+  0%, 60%, 100% { transform: translateY(0);    opacity: 0.4; }
+  30%            { transform: translateY(-5px); opacity: 1;   }
+}
+.typing-dot:nth-child(1) { animation: typing-dot 1.2s ease-in-out infinite 0ms; }
+.typing-dot:nth-child(2) { animation: typing-dot 1.2s ease-in-out infinite 150ms; }
+.typing-dot:nth-child(3) { animation: typing-dot 1.2s ease-in-out infinite 300ms; }
+
+/* ── Gradient border shimmer ── */
+@keyframes border-spin {
+  from { --angle: 0deg; }
+  to   { --angle: 360deg; }
+}
+
+/* ── Glass panel ── */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* ── Orb glow ── */
+@keyframes orb-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(30px, -20px) scale(1.05); }
+  66%       { transform: translate(-20px, 15px) scale(0.97); }
+}
+.animate-orb {
+  animation: orb-drift 18s ease-in-out infinite;
+}
+.animate-orb-2 {
+  animation: orb-drift 24s ease-in-out infinite reverse;
+}
+
+/* ── Send button gradient ── */
+.btn-send {
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.btn-send:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.45);
+}
+.btn-send:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* ── Chat scroll area ── */
+.chat-scroll::-webkit-scrollbar { width: 4px; }
+.chat-scroll::-webkit-scrollbar-track { background: transparent; }
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+}
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.2);
+}

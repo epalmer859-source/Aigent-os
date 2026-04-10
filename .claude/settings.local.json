@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx create-t3-app@latest communications-os --CI --noGit)",
+      "Bash(rm -rf communications-os)",
+      "Bash(npx create-t3-app@latest communications-os --CI --trpc --prisma --nextAuth --tailwind --appRouter --noGit --dbProvider postgres)",
+      "Bash(xargs grep:*)",
+      "Bash(node:*)"
+    ]
+  }
+}
