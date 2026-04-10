@@ -725,9 +725,27 @@ async function _generateAIResponseFromDb(
       }, bookingDeps);
 
       if (result.booked) {
-        const dateStr = result.scheduledDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-        bookingResponseOverride = `Great news! Your appointment has been booked. ${result.techName} will be heading your way on ${dateStr}. We'll send you a reminder beforehand. If you need to make any changes, just let us know!`;
-        console.log("[ai-response] booking pipeline SUCCESS — jobId:", result.jobId, "tech:", result.techName, "date:", dateStr);
+        // Format date relative to today
+        const now = new Date();
+        const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const scheduledMidnight = new Date(result.scheduledDate.getFullYear(), result.scheduledDate.getMonth(), result.scheduledDate.getDate());
+        const dayDiff = Math.round((scheduledMidnight.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24));
+        let dateStr: string;
+        if (dayDiff === 0) dateStr = "today";
+        else if (dayDiff === 1) dateStr = "tomorrow";
+        else dateStr = result.scheduledDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+
+        const queueNote = result.queuePosition === 0 ? " You're first on the schedule." : result.queuePosition === 1 ? " You're second on the schedule." : "";
+
+        // Look up business phone for the confirmation message
+        let bizPhone = "";
+        try {
+          const biz = await db.businesses.findUnique({ where: { id: businessId }, select: { preferred_phone_number: true } });
+          if (biz?.preferred_phone_number) bizPhone = ` If anything changes, reach us at ${biz.preferred_phone_number}.`;
+        } catch { /* non-critical */ }
+
+        bookingResponseOverride = `Great news, ${customerName}! Your appointment is booked — ${result.techName} will be heading your way ${dateStr}.${queueNote} We'll send you a heads-up when they're on the way.${bizPhone}`;
+        console.log("[ai-response] booking pipeline SUCCESS — jobId:", result.jobId, "tech:", result.techName, "date:", dateStr, "queuePos:", result.queuePosition);
       } else {
         bookingResponseOverride = `I've collected all your details. Our team is reviewing availability and will confirm your appointment shortly. We'll reach out as soon as everything is set!`;
         console.warn("[ai-response] booking pipeline could not auto-book:", result.reason);
@@ -747,6 +765,10 @@ async function _generateAIResponseFromDb(
 
   let responseText = bookingResponseOverride ?? effectiveDecision.response_text;
   if (!validation.confidencePassed && !bookingResponseOverride) responseText = FALLBACK_RESPONSE;
+
+  // Sync the decision object so any consumer reading decision.response_text gets the override.
+  effectiveDecision.response_text = responseText;
+  if (effectiveDecision.responseText !== undefined) effectiveDecision.responseText = responseText;
 
   const rawPurpose = effectiveDecision.message_purpose;
   const messagePurpose = ALL_PURPOSES.has(rawPurpose) ? rawPurpose : "admin_response_relay";
