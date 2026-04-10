@@ -604,10 +604,17 @@ async function _generateAIResponseFromDb(
 
   const effectiveDecision: AIDecision = { ...decision, handoff_required: forceHandoff, handoff_reason: forceHandoffReason, proposed_state_change: forceStateChange };
 
+  console.log('[ai-response] parsed decision:', JSON.stringify(effectiveDecision, null, 2));
+
   // ── AI Booking Pipeline — automated dispatch on bookingConfirmed ─────────
   // When Claude sets bookingConfirmed: true (or rule_flags includes "booking_confirmed"),
   // run the full booking pipeline: classify service → find date → assign tech → book job.
   // On success, override responseText with confirmation; on failure, inform the customer.
+  console.log('[ai-response] booking check:', {
+    bookingConfirmed: effectiveDecision.bookingConfirmed,
+    ruleFlags: effectiveDecision.rule_flags,
+    proposedState: effectiveDecision.proposed_state_change,
+  });
   const bookingConfirmed = effectiveDecision.bookingConfirmed === true || flags.includes("booking_confirmed");
   let bookingResponseOverride: string | null = null;
 
