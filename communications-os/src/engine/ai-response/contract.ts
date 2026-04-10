@@ -37,6 +37,8 @@ export interface AIDecision {
   collected_phone?: string | null;
   /** Customer's scheduling availability preference if collected in this turn. */
   availability_preference?: string | null;
+  /** Customer's service address if collected in this turn (e.g. "123 Main St, City, ST 12345"). */
+  collected_service_address?: string | null;
   /** True if a human should take over this conversation. */
   handoff_required: boolean;
   /** Required when handoff_required = true. */

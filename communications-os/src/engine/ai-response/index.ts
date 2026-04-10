@@ -604,11 +604,142 @@ async function _generateAIResponseFromDb(
 
   const effectiveDecision: AIDecision = { ...decision, handoff_required: forceHandoff, handoff_reason: forceHandoffReason, proposed_state_change: forceStateChange };
 
+  // ── AI Booking Pipeline — automated dispatch on bookingConfirmed ─────────
+  // When Claude sets bookingConfirmed: true (or rule_flags includes "booking_confirmed"),
+  // run the full booking pipeline: classify service → find date → assign tech → book job.
+  // On success, override responseText with confirmation; on failure, inform the customer.
+  const bookingConfirmed = effectiveDecision.bookingConfirmed === true || flags.includes("booking_confirmed");
+  let bookingResponseOverride: string | null = null;
+
+  if (bookingConfirmed) {
+    console.log("[ai-response] bookingConfirmed detected, running AI booking pipeline");
+    try {
+      const aiBookingModule = await import("~/engine/scheduling/ai-booking-pipeline");
+      const { createBookingOrchestratorDb, createCapacityDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+      const { randomUUID } = await import("crypto");
+      const runAIBookingPipeline = aiBookingModule.runAIBookingPipeline;
+
+      // Gather customer data from the decision and conversation
+      const collectedName = effectiveDecision.collected_name
+        ?? (effectiveDecision as unknown as Record<string, unknown>)["collectedName"] as string | null | undefined;
+      const collectedAddress = effectiveDecision.collected_service_address
+        ?? (effectiveDecision as unknown as Record<string, unknown>)["collected_service_address"] as string | null | undefined;
+      const availabilityPref = effectiveDecision.availability_preference ?? null;
+
+      // If we have address this turn, persist it on the conversation
+      if (collectedAddress) {
+        await db.conversations.update({
+          where: { id: conversationId },
+          data: { collected_service_address: collectedAddress },
+        });
+      }
+
+      // Look up existing collected_service_address if not provided this turn
+      let addressText = collectedAddress ?? "";
+      if (!addressText) {
+        const convAddr = await db.conversations.findUnique({
+          where: { id: conversationId },
+          select: { collected_service_address: true },
+        });
+        addressText = convAddr?.collected_service_address ?? "";
+      }
+
+      // Look up customer name if not in this turn's decision
+      let customerName = collectedName ?? "";
+      if (!customerName) {
+        const convTitle = await db.conversations.findUnique({
+          where: { id: conversationId },
+          select: { contact_display_name: true },
+        });
+        customerName = convTitle?.contact_display_name ?? "Customer";
+      }
+
+      // Build service description from detected_intent
+      const serviceDescription = effectiveDecision.detected_intent ?? "";
+
+      // Wire up dependencies from Prisma
+      const capacityDb = createCapacityDb(db);
+      const bookingDb = createBookingOrchestratorDb(db);
+
+      const bookingDeps = {
+        capacityDb,
+        bookingDb,
+        generateId: () => randomUUID(),
+
+        async getTechCandidates(bizId: string) {
+          const techs = await db.technicians.findMany({
+            where: { business_id: bizId, is_active: true },
+            include: { skill_tags: true, scheduling_jobs: { where: { status: { in: ["NOT_STARTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] }, scheduled_date: new Date() }, select: { id: true } } },
+          });
+          return techs.map((t) => ({
+            id: t.id,
+            businessId: t.business_id,
+            name: t.name,
+            homeBaseLat: t.home_base_lat,
+            homeBaseLng: t.home_base_lng,
+            skillTags: t.skill_tags.map((s) => s.service_type_id),
+            workingHoursStart: t.working_hours_start,
+            workingHoursEnd: t.working_hours_end,
+            lunchStart: t.lunch_start,
+            lunchEnd: t.lunch_end,
+            overtimeCapMinutes: t.overtime_cap_minutes,
+            isActive: t.is_active,
+            existingJobsToday: t.scheduling_jobs.length,
+          }));
+        },
+
+        async getServiceTypes(bizId: string) {
+          const rows = await db.service_types.findMany({ where: { business_id: bizId } });
+          return rows.map((r) => ({
+            id: r.id,
+            name: r.name,
+            industry: r.industry,
+            baseDurationMinutes: r.base_duration_minutes,
+            volatilityTier: r.volatility_tier as "LOW" | "MEDIUM" | "HIGH",
+            symptomPhrases: Array.isArray(r.symptom_phrases) ? r.symptom_phrases as string[] : [],
+            propertyTypeVariants: r.property_type_variants as Record<string, number> | undefined,
+          }));
+        },
+
+        async getBusinessIndustry(bizId: string) {
+          const biz = await db.businesses.findUniqueOrThrow({ where: { id: bizId }, select: { industry: true } });
+          return biz.industry;
+        },
+      };
+
+      const result = await runAIBookingPipeline({
+        businessId,
+        conversationId,
+        customerId,
+        customerName,
+        serviceDescription,
+        addressText,
+        availabilityPreference: availabilityPref,
+      }, bookingDeps);
+
+      if (result.booked) {
+        const dateStr = result.scheduledDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+        bookingResponseOverride = `Great news! Your appointment has been booked. ${result.techName} will be heading your way on ${dateStr}. We'll send you a reminder beforehand. If you need to make any changes, just let us know!`;
+        console.log("[ai-response] booking pipeline SUCCESS — jobId:", result.jobId, "tech:", result.techName, "date:", dateStr);
+      } else {
+        bookingResponseOverride = `I've collected all your details. Our team is reviewing availability and will confirm your appointment shortly. We'll reach out as soon as everything is set!`;
+        console.warn("[ai-response] booking pipeline could not auto-book:", result.reason);
+        // Don't block the state transition — the conversation still moves to "booked"
+        // and the admin can manually schedule if auto-dispatch failed.
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[ai-response] booking pipeline error:", errMsg);
+      bookingResponseOverride = `I've collected all your details. Our team will confirm your appointment shortly!`;
+      // Graceful degradation: let the conversation proceed
+    }
+  }
+
   // Validate.
   const validation = validateAIDecision(effectiveDecision, conversationState);
 
-  let responseText = effectiveDecision.response_text;
-  if (!validation.confidencePassed) responseText = FALLBACK_RESPONSE;
+  let responseText = bookingResponseOverride ?? effectiveDecision.response_text;
+  if (!validation.confidencePassed && !bookingResponseOverride) responseText = FALLBACK_RESPONSE;
 
   const rawPurpose = effectiveDecision.message_purpose;
   const messagePurpose = ALL_PURPOSES.has(rawPurpose) ? rawPurpose : "admin_response_relay";
@@ -653,16 +784,18 @@ async function _generateAIResponseFromDb(
       data: { ai_disclosure_sent_at: new Date() },
     });
 
-    // If Claude collected a name or phone this turn, write them to the conversation title.
+    // If Claude collected a name, phone, or address this turn, write them to the conversation.
     const collectedName = effectiveDecision.collected_name ?? (effectiveDecision as unknown as Record<string, unknown>)["collectedName"] as string | null | undefined;
     const collectedPhone = effectiveDecision.collected_phone ?? (effectiveDecision as unknown as Record<string, unknown>)["collectedPhone"] as string | null | undefined;
-    if (collectedName ?? collectedPhone) {
-      const titleUpdate: Record<string, string> = {};
-      if (collectedName) titleUpdate["contact_display_name"] = collectedName;
-      if (collectedPhone) titleUpdate["contact_handle"] = collectedPhone;
+    const collectedAddr = effectiveDecision.collected_service_address ?? (effectiveDecision as unknown as Record<string, unknown>)["collected_service_address"] as string | null | undefined;
+    if (collectedName ?? collectedPhone ?? collectedAddr) {
+      const convUpdate: Record<string, string> = {};
+      if (collectedName) convUpdate["contact_display_name"] = collectedName;
+      if (collectedPhone) convUpdate["contact_handle"] = collectedPhone;
+      if (collectedAddr) convUpdate["collected_service_address"] = collectedAddr;
       await tx.conversations.update({
         where: { id: conversationId },
-        data: titleUpdate as never,
+        data: convUpdate as never,
       });
     }
 

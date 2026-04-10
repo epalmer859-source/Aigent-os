@@ -229,6 +229,7 @@ const AI_DECISION_SCHEMA = `
   "collected_name": "string | null — the customer's full name if provided this turn, otherwise null",
   "collected_phone": "string | null — the customer's phone number if provided this turn, otherwise null",
   "availability_preference": "string | null — scheduling preference if collected this turn (e.g. 'Soonest available', 'Mornings only'), otherwise null",
+  "collected_service_address": "string | null — the full service address if the customer provided it this turn (e.g. '123 Main St, Springfield, IL 62704'), otherwise null",
   "show_address_form": "boolean — set to true ONLY when you are asking the customer to provide their address. The web chat will display a structured form. Set to false at all other times."
 }`;
 
