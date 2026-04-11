@@ -27,8 +27,14 @@ export const techDashboardRouter = createTRPCRouter({
               id: true,
               display_name: true,
               customer_contacts: {
-                where: { contact_type: "phone", is_primary: true },
+                where: { contact_type: "phone" },
                 select: { contact_value: true },
+                take: 1,
+              },
+              conversations: {
+                where: { primary_state: "booked" },
+                select: { cached_summary: true },
+                orderBy: { updated_at: "desc" },
                 take: 1,
               },
             },
@@ -50,11 +56,14 @@ export const techDashboardRouter = createTRPCRouter({
         orderBy: { queue_position: "asc" },
       });
 
-      // Flatten customer phone and conversation summary onto each job
+      // Flatten: phone from contacts, summary from appointment conversation or customer's latest booked conversation
       return jobs.map((j) => ({
         ...j,
         customer_phone: j.customers?.customer_contacts?.[0]?.contact_value ?? null,
-        job_summary: j.appointments?.conversations?.cached_summary ?? null,
+        job_summary:
+          j.appointments?.conversations?.cached_summary
+          ?? j.customers?.conversations?.[0]?.cached_summary
+          ?? null,
       }));
     }),
 
@@ -137,8 +146,14 @@ export const techDashboardRouter = createTRPCRouter({
               id: true,
               display_name: true,
               customer_contacts: {
-                where: { contact_type: "phone", is_primary: true },
+                where: { contact_type: "phone" },
                 select: { contact_value: true },
+                take: 1,
+              },
+              conversations: {
+                where: { primary_state: "booked" },
+                select: { cached_summary: true },
+                orderBy: { updated_at: "desc" },
                 take: 1,
               },
             },
@@ -169,7 +184,10 @@ export const techDashboardRouter = createTRPCRouter({
       return {
         ...job,
         customer_phone: job.customers?.customer_contacts?.[0]?.contact_value ?? null,
-        job_summary: job.appointments?.conversations?.cached_summary ?? null,
+        job_summary:
+          job.appointments?.conversations?.cached_summary
+          ?? job.customers?.conversations?.[0]?.cached_summary
+          ?? null,
       };
     }),
 
@@ -193,8 +211,14 @@ export const techDashboardRouter = createTRPCRouter({
             id: true,
             display_name: true,
             customer_contacts: {
-              where: { contact_type: "phone", is_primary: true },
+              where: { contact_type: "phone" },
               select: { contact_value: true },
+              take: 1,
+            },
+            conversations: {
+              where: { primary_state: "booked" },
+              select: { cached_summary: true },
+              orderBy: { updated_at: "desc" },
               take: 1,
             },
           },
@@ -214,7 +238,10 @@ export const techDashboardRouter = createTRPCRouter({
     return jobs.map((j) => ({
       ...j,
       customer_phone: j.customers?.customer_contacts?.[0]?.contact_value ?? null,
-      job_summary: j.appointments?.conversations?.cached_summary ?? null,
+      job_summary:
+        j.appointments?.conversations?.cached_summary
+        ?? j.customers?.conversations?.[0]?.cached_summary
+        ?? null,
     }));
   }),
 
