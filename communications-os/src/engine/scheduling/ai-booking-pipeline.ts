@@ -31,6 +31,7 @@ export interface SlotGenerationInput {
   businessId: string;
   serviceDescription: string;
   availabilityPreference: string | null;
+  availabilityCutoffTime?: string | null;
 }
 
 export interface SlotGenerationDeps {
@@ -86,6 +87,37 @@ export function parseTimePreference(pref: string | null): TimePreference {
   if (lower.includes("afternoon") || lower.includes("evening")) return "AFTERNOON";
   if (lower.includes("soonest") || lower.includes("asap") || lower.includes("earliest")) return "SOONEST";
   return "NO_PREFERENCE";
+}
+
+/**
+ * Parse a cutoff time string (e.g. "13:00", "1:00 PM", "noon") into minutes from midnight.
+ * Returns null if unparseable — caller should fall back to default (720 = noon).
+ */
+export function parseCutoffTime(cutoff: string | null | undefined): number | null {
+  if (!cutoff) return null;
+  const trimmed = cutoff.trim().toLowerCase();
+
+  // "noon" / "12" → 720
+  if (trimmed === "noon") return 720;
+
+  // HH:MM 24-hour format (e.g. "13:00", "09:30")
+  const match24 = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+  if (match24) {
+    const h = parseInt(match24[1]!, 10);
+    const m = parseInt(match24[2]!, 10);
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return h * 60 + m;
+  }
+
+  // Just a bare number like "1", "13"
+  const matchBare = trimmed.match(/^(\d{1,2})$/);
+  if (matchBare) {
+    let h = parseInt(matchBare[1]!, 10);
+    // Assume PM for numbers 1-6 (business hours), AM for 7-12
+    if (h >= 1 && h <= 6) h += 12;
+    if (h >= 7 && h <= 23) return h * 60;
+  }
+
+  return null;
 }
 
 /** Round minutes to nearest 15. */
@@ -213,7 +245,7 @@ export async function generateAvailableSlots(
   input: SlotGenerationInput,
   deps: SlotGenerationDeps,
 ): Promise<SlotGenerationResult> {
-  const { businessId, serviceDescription, availabilityPreference } = input;
+  const { businessId, serviceDescription, availabilityPreference, availabilityCutoffTime } = input;
 
   // 1. Load techs, service types, industry
   const [techs, serviceTypes, industry] = await Promise.all([
@@ -249,8 +281,9 @@ export async function generateAvailableSlots(
     serviceTypeName = serviceTypes[0]!.name;
   }
 
-  // 3. Parse time preference
+  // 3. Parse time preference + cutoff
   const timePreference = parseTimePreference(availabilityPreference);
+  const cutoffMinutes = parseCutoffTime(availabilityCutoffTime) ?? 720; // default noon
 
   // 4. Enumerate slots: 5 business days × all qualified techs × all valid positions
   const today = new Date();
@@ -309,9 +342,9 @@ export async function generateAvailableSlots(
         if (windowWidth < 60) continue;
         if (windowWidth > 240) continue;
 
-        // Filter by time-of-day preference (noon = 720 minutes from midnight)
-        if (timePreference === "MORNING" && windowStart >= 720) continue;
-        if (timePreference === "AFTERNOON" && windowStart < 720) continue;
+        // Filter by time-of-day preference using customer's cutoff time
+        if (timePreference === "MORNING" && windowStart >= cutoffMinutes) continue;
+        if (timePreference === "AFTERNOON" && windowStart < cutoffMinutes) continue;
 
         // Build label
         const dateLabel = formatDateLabel(date, now);

@@ -166,7 +166,16 @@ Whenever scheduling or availability comes up — whether you are starting to boo
 • No preference
 • Anything specific we should know about your availability?"
 
-Do not paraphrase, shorten, or skip this list. Do not ask a vague question like "when works for you?" — always show the full list above.`;
+Do not paraphrase, shorten, or skip this list. Do not ask a vague question like "when works for you?" — always show the full list above.
+
+FOLLOW-UP FOR MORNINGS/AFTERNOONS:
+If the customer selects "Mornings only", ask ONE follow-up: "What's the latest you'd be available? For example, by noon, by 1 PM, by 2 PM?"
+If the customer selects "Afternoons only", ask ONE follow-up: "What's the earliest you'd be available? For example, after 11 AM, after noon, after 1 PM?"
+Parse their response into a 24-hour time string and set "availability_cutoff_time" in your JSON response (e.g. "12:00", "13:00", "14:00").
+Examples: "by 1" → "13:00", "before 1pm" → "13:00", "no later than 2" → "14:00", "after 11 AM" → "11:00", "noon" → "12:00", "1 o'clock" → "13:00".
+If the customer gives a vague answer like "I don't care", "whenever", or "doesn't matter", set availability_cutoff_time to "12:00" (noon default).
+Do NOT ask this follow-up for "Soonest available" or "No preference" — skip straight to the next field.
+Only ask the cutoff question ONCE — do not re-ask if the customer already answered it.`;
 
 const AUTOMATIC_SCHEDULING_RULE = `-- AUTOMATIC SCHEDULING — TWO-STEP FLOW (mandatory) --
 The booking process has TWO steps. Follow them exactly.

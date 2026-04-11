@@ -683,12 +683,16 @@ async function _generateAIResponseFromDb(
       const collectedAddress = effectiveDecision.collected_service_address
         ?? (effectiveDecision as unknown as Record<string, unknown>)["collected_service_address"] as string | null | undefined;
       const availabilityPref = effectiveDecision.availability_preference ?? null;
+      const availabilityCutoff = effectiveDecision.availability_cutoff_time ?? null;
 
-      // Persist address if collected this turn
-      if (collectedAddress) {
+      // Persist address and/or cutoff time if collected this turn
+      const persistData: Record<string, unknown> = {};
+      if (collectedAddress) persistData.collected_service_address = collectedAddress;
+      if (availabilityCutoff) persistData.availability_cutoff_time = availabilityCutoff;
+      if (Object.keys(persistData).length > 0) {
         await db.conversations.update({
           where: { id: conversationId },
-          data: { collected_service_address: collectedAddress },
+          data: persistData,
         });
       }
 
@@ -867,6 +871,16 @@ async function _generateAIResponseFromDb(
           console.warn("[ai-response] STEP 1 — holding message failed (non-critical):", holdingErr);
         }
 
+        // Load cutoff time — may have been set in a prior turn
+        let cutoffTime = availabilityCutoff;
+        if (!cutoffTime) {
+          const convCutoff = await db.conversations.findUnique({
+            where: { id: conversationId },
+            select: { availability_cutoff_time: true },
+          }) as unknown as { availability_cutoff_time?: string | null } | null;
+          cutoffTime = convCutoff?.availability_cutoff_time ?? null;
+        }
+
         // Run slot generation with a 15-second timeout
         console.log("[ai-response] STEP 1 — calling generateAvailableSlots (15s timeout)...");
         const SLOT_TIMEOUT_MS = 15000;
@@ -874,6 +888,7 @@ async function _generateAIResponseFromDb(
           businessId,
           serviceDescription,
           availabilityPreference: availabilityPref,
+          availabilityCutoffTime: cutoffTime,
         }, slotDeps);
         const slotTimeout = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error(`Slot generation timed out after ${SLOT_TIMEOUT_MS}ms`)), SLOT_TIMEOUT_MS)
