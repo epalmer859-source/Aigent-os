@@ -30,28 +30,33 @@ export const authConfig = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        const parsed = z
-          .object({ email: z.string().email(), password: z.string().min(1) })
-          .safeParse(credentials);
+        try {
+          const parsed = z
+            .object({ email: z.string().email(), password: z.string().min(1) })
+            .safeParse(credentials);
 
-        if (!parsed.success) return null;
+          if (!parsed.success) return null;
 
-        const { email, password } = parsed.data;
+          const { email, password } = parsed.data;
 
-        const user = await db.users.findUnique({ where: { email } });
-        if (!user?.password_hash) return null;
+          const user = await db.users.findUnique({ where: { email } });
+          if (!user?.password_hash) return null;
 
-        const valid = await bcrypt.compare(password, user.password_hash);
-        if (!valid) return null;
+          const valid = await bcrypt.compare(password, user.password_hash);
+          if (!valid) return null;
 
-        return {
-          id: user.id,
-          email: user.email,
-          emailVerified: null,
-          businessId: user.business_id,
-          technicianId: user.technician_id,
-          role: user.role,
-        };
+          return {
+            id: user.id,
+            email: user.email,
+            emailVerified: null,
+            businessId: user.business_id,
+            technicianId: user.technician_id ?? null,
+            role: user.role,
+          };
+        } catch (error) {
+          console.error("[AUTH] authorize() crashed:", error);
+          return null;
+        }
       },
     }),
   ],
@@ -59,24 +64,28 @@ export const authConfig = {
   pages: { signIn: "/sign-in" },
   callbacks: {
     async jwt({ token, user, trigger }) {
-      if (user) {
-        token.id = user.id;
-        token.businessId = user.businessId;
-        token.technicianId = user.technicianId;
-        token.role = user.role;
-      }
-      // Re-fetch from DB when session.update() is called OR when businessId is missing
-      // (covers stale tokens where onboarding completed but JWT wasn't refreshed)
-      if (token.id && (trigger === "update" || !token.businessId)) {
-        const fresh = await db.users.findUnique({
-          where: { id: token.id as string },
-          select: { business_id: true, technician_id: true, role: true },
-        });
-        if (fresh) {
-          token.businessId = fresh.business_id;
-          token.technicianId = fresh.technician_id;
-          token.role = fresh.role;
+      try {
+        if (user) {
+          token.id = user.id;
+          token.businessId = user.businessId;
+          token.technicianId = user.technicianId;
+          token.role = user.role;
         }
+        // Re-fetch from DB when session.update() is called OR when businessId is missing
+        // (covers stale tokens where onboarding completed but JWT wasn't refreshed)
+        if (token.id && (trigger === "update" || !token.businessId)) {
+          const fresh = await db.users.findUnique({
+            where: { id: token.id as string },
+            select: { business_id: true, technician_id: true, role: true },
+          });
+          if (fresh) {
+            token.businessId = fresh.business_id;
+            token.technicianId = fresh.technician_id;
+            token.role = fresh.role;
+          }
+        }
+      } catch (error) {
+        console.error("[AUTH] jwt() callback crashed:", error);
       }
       return token;
     },
