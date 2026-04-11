@@ -565,15 +565,37 @@ async function _generateAIResponseFromDb(
   const latencyMs = Date.now() - startTime;
   console.log("[ai-response] claude total latency:", latencyMs, "ms, decision:", decision !== null ? "ok" : "null");
 
-  // FALLBACK PATH
+  // FALLBACK PATH — check for fallback loop before sending another generic message
   if (decision === null) {
     console.error("[ai-response] entering fallback path, lastError:", lastError);
+
+    // Detect fallback loop: if the last assistant message was already a fallback,
+    // send a recovery message instead to break the cycle.
+    const recentMessages = conversationHistory.slice(-4);
+    const lastAssistantMsg = [...recentMessages].reverse().find((m) => m.role === "assistant");
+    const isInFallbackLoop = lastAssistantMsg?.content === FALLBACK_RESPONSE;
+    const fallbackText = isInFallbackLoop
+      ? "I'm sorry for the trouble — let me connect you with our team directly. Someone will reach out to you shortly!"
+      : FALLBACK_RESPONSE;
+
+    if (isInFallbackLoop) {
+      console.error("[ai-response] FALLBACK LOOP DETECTED — sending recovery message and creating escalation");
+    }
+
     const { msgId, queueId } = await db.$transaction(async (tx) => {
-      const msg = await tx.message_log.create({ data: { business_id: businessId, conversation_id: conversationId, direction: "outbound", channel: "sms", sender_type: "ai", content: FALLBACK_RESPONSE } });
+      const msg = await tx.message_log.create({ data: { business_id: businessId, conversation_id: conversationId, direction: "outbound", channel: "sms", sender_type: "ai", content: fallbackText } });
       const q = await tx.outbound_queue.create({ data: { business_id: businessId, conversation_id: conversationId, message_purpose: "admin_response_relay", audience_type: "customer", channel: "sms", dedupe_key: `fallback:${Date.now()}`, scheduled_send_at: new Date() } });
       await tx.prompt_log.create({ data: { business_id: businessId, conversation_id: conversationId, prompt_purpose: "ai_response", prompt_text: (systemPrompt ?? "").slice(0, 2000), response_text: lastError ?? "", model: AI_MODEL, latency_ms: latencyMs, success: false, error_message: lastError } });
       return { msgId: msg.id, queueId: q.id };
     });
+
+    // On fallback loop, escalate so a human can step in
+    if (isInFallbackLoop) {
+      try {
+        await db.escalations.create({ data: { business_id: businessId, conversation_id: conversationId, category: "complaint" as any, status: "open" } });
+      } catch { /* escalation creation is non-critical */ }
+    }
+
     return { success: false, stateChanged: false, handoffCreated: false, messageLogId: msgId, queueRowId: queueId, error: lastError };
   }
 
@@ -731,6 +753,12 @@ async function _generateAIResponseFromDb(
       // ── STEP 1: Generate slots and present to customer ─────────────
       } else {
         console.log("[ai-response] STEP 1 — generating available slots");
+        console.log("[ai-response] STEP 1 inputs:", {
+          businessId,
+          serviceDescription: effectiveDecision.detected_intent ?? "(none)",
+          availabilityPref,
+          conversationState,
+        });
 
         const serviceDescription = effectiveDecision.detected_intent ?? "";
         const capacityDb = createCapacityDb(db);
@@ -738,10 +766,12 @@ async function _generateAIResponseFromDb(
         const slotDeps = {
           capacityDb,
           async getTechCandidates(bizId: string) {
+            console.log("[ai-response] STEP 1 — querying technicians for business:", bizId);
             const techs = await db.technicians.findMany({
               where: { business_id: bizId, is_active: true },
               include: { skill_tags: true, scheduling_jobs: { where: { status: { in: ["NOT_STARTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] }, scheduled_date: new Date() }, select: { id: true } } },
             });
+            console.log("[ai-response] STEP 1 — found", techs.length, "active techs:", techs.map((t) => ({ id: t.id, name: t.name, skills: t.skill_tags.map((s: { service_type_id: string }) => s.service_type_id) })));
             return techs.map((t) => ({
               id: t.id,
               businessId: t.business_id,
@@ -759,7 +789,9 @@ async function _generateAIResponseFromDb(
             }));
           },
           async getServiceTypes(bizId: string) {
+            console.log("[ai-response] STEP 1 — querying service types for business:", bizId);
             const rows = await db.service_types.findMany({ where: { business_id: bizId } });
+            console.log("[ai-response] STEP 1 — found", rows.length, "service types:", rows.map((r) => ({ id: r.id, name: r.name })));
             return rows.map((r) => ({
               id: r.id,
               name: r.name,
@@ -771,7 +803,13 @@ async function _generateAIResponseFromDb(
             }));
           },
           async getBusinessIndustry(bizId: string) {
-            const biz = await db.businesses.findUniqueOrThrow({ where: { id: bizId }, select: { industry: true } });
+            console.log("[ai-response] STEP 1 — querying business industry for:", bizId);
+            const biz = await db.businesses.findUnique({ where: { id: bizId }, select: { industry: true } });
+            if (!biz) {
+              console.error("[ai-response] STEP 1 — business not found:", bizId);
+              return "general";
+            }
+            console.log("[ai-response] STEP 1 — business industry:", biz.industry);
             return biz.industry;
           },
           async getQueueForTechDate(technicianId: string, date: Date) {
@@ -781,11 +819,13 @@ async function _generateAIResponseFromDb(
           },
         };
 
+        console.log("[ai-response] STEP 1 — calling generateAvailableSlots...");
         const slotResult = await generateAvailableSlots({
           businessId,
           serviceDescription,
           availabilityPreference: availabilityPref,
         }, slotDeps);
+        console.log("[ai-response] STEP 1 — generateAvailableSlots returned:", slotResult.success ? `${(slotResult as { slots: unknown[] }).slots.length} slots` : `failed: ${(slotResult as { reason: string }).reason}`);
 
         if (slotResult.success) {
           // Store slots on conversation for step 2
@@ -809,9 +849,14 @@ async function _generateAIResponseFromDb(
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error("[ai-response] booking pipeline error:", errMsg);
-      bookingResponseOverride = `I've collected all your details. Our team will confirm your appointment shortly!`;
+      const errStack = err instanceof Error ? err.stack : "";
+      console.error("[ai-response] BOOKING PIPELINE ERROR:", errMsg);
+      console.error("[ai-response] BOOKING PIPELINE STACK:", errStack);
+      bookingResponseOverride = `I'm having trouble checking availability right now — let me connect you with our team. Someone will reach out shortly to get your appointment scheduled!`;
       effectiveDecision.proposed_state_change = null;
+      // Don't let booking failure silently corrupt state — ensure handoff
+      effectiveDecision.handoff_required = true;
+      effectiveDecision.handoff_reason = `Booking pipeline error: ${errMsg}`;
     }
   }
 
@@ -819,7 +864,28 @@ async function _generateAIResponseFromDb(
   const validation = validateAIDecision(effectiveDecision, conversationState);
 
   let responseText = bookingResponseOverride ?? effectiveDecision.response_text;
-  if (!validation.confidencePassed && !bookingResponseOverride) responseText = FALLBACK_RESPONSE;
+  if (!validation.confidencePassed && !bookingResponseOverride) {
+    // Check if using the generic fallback would create a loop.
+    // If the AI produced a substantive response, prefer it over the generic fallback
+    // to avoid poisoning conversation history with dead-end messages.
+    const aiText = effectiveDecision.response_text ?? "";
+    const recentMessages = conversationHistory.slice(-4);
+    const lastAssistantMsg = [...recentMessages].reverse().find((m) => m.role === "assistant");
+    const alreadyInFallback = lastAssistantMsg?.content === FALLBACK_RESPONSE;
+
+    if (alreadyInFallback && aiText.length > 20) {
+      // Break the loop: use Claude's actual response even though confidence is low
+      console.warn("[ai-response] low confidence BUT in fallback loop — using AI response to break cycle:", aiText.slice(0, 100));
+      responseText = aiText;
+    } else if (alreadyInFallback) {
+      // In a loop and AI has nothing useful — send recovery message
+      console.error("[ai-response] FALLBACK LOOP — low confidence, no useful AI text — sending recovery");
+      responseText = "I'm having some trouble right now — let me connect you with our team. Someone will follow up shortly!";
+    } else {
+      console.warn("[ai-response] low confidence (", effectiveDecision.confidence, ") — using fallback response");
+      responseText = FALLBACK_RESPONSE;
+    }
+  }
 
   // Sync the decision object so any consumer reading decision.response_text gets the override.
   effectiveDecision.response_text = responseText;
@@ -849,9 +915,9 @@ async function _generateAIResponseFromDb(
     void regenerateSummary(conversationId).catch(() => {});
   }
 
-  // Handoff.
+  // Handoff — check both the original forceHandoff and any booking-pipeline-triggered handoff.
   let handoffCreated = false;
-  if (forceHandoff) {
+  if (forceHandoff || effectiveDecision.handoff_required) {
     await db.escalations.create({ data: { business_id: businessId, conversation_id: conversationId, category: "complaint" as any, status: "open" } });
     handoffCreated = true;
   }
