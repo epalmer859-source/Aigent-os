@@ -309,6 +309,10 @@ export async function generateAvailableSlots(
         if (windowWidth < 60) continue;
         if (windowWidth > 240) continue;
 
+        // Filter by time-of-day preference (noon = 720 minutes from midnight)
+        if (timePreference === "MORNING" && windowStart >= 720) continue;
+        if (timePreference === "AFTERNOON" && windowStart < 720) continue;
+
         // Build label
         const dateLabel = formatDateLabel(date, now);
         const hoursFromNow = ((date.getTime() + rawStart * 60000) - now.getTime()) / 3600000;
