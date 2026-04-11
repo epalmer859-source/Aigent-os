@@ -669,98 +669,79 @@ function JobCard({
 }
 
 function CompactJobRow({ job }: { job: any }) {
-  const [expanded, setExpanded] = useState(false);
   const statusInfo = STATUS_COLORS[job.status as string] ?? STATUS_COLORS.COMPLETED!;
   const customerName = job.customers?.display_name || "\u2014";
   const phone = job.customer_phone as string | null;
   const address = job.address_text as string | null;
   const summary = (job.job_summary || job.service_types?.name || "\u2014") as string;
+  const duration = job.estimated_duration_minutes ?? job.actual_duration_minutes;
 
   return (
     <div
-      className="overflow-hidden rounded-lg border"
+      className="rounded-lg border px-4 py-3"
       style={{
         background: "var(--bg-elevated)",
-        borderColor: expanded ? "#3b82f6" : "var(--border)",
+        borderColor: "var(--border)",
       }}
     >
-      {/* Collapsed header */}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
-      >
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium" style={{ color: "var(--t2)" }}>
-            {customerName}
-          </p>
-          <p className="truncate text-xs" style={{ color: "var(--t3)" }}>
-            {job.service_types?.name ?? "Service"}
-            {job.actual_duration_minutes ? ` \u00b7 ${job.actual_duration_minutes} min` : ""}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span
-            className="rounded-full px-2.5 py-0.5 text-xs font-medium"
-            style={{ background: statusInfo.bg, color: statusInfo.text }}
-          >
-            {statusInfo.label}
-          </span>
-          <svg
-            className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`}
-            style={{ color: "var(--t3)" }}
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-          </svg>
-        </div>
-      </button>
+      {/* Name + status */}
+      <div className="flex items-center justify-between">
+        <Link
+          href={`/tech/job/${job.id}`}
+          className="truncate text-sm font-semibold hover:underline"
+          style={{ color: "var(--t1)" }}
+        >
+          {customerName}
+        </Link>
+        <span
+          className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
+          style={{ background: statusInfo.bg, color: statusInfo.text }}
+        >
+          {statusInfo.label}
+        </span>
+      </div>
 
-      {/* Expanded details */}
-      {expanded && (
-        <div className="space-y-2.5 border-t px-4 pb-3 pt-2.5" style={{ borderColor: "var(--border)" }}>
-          {/* Phone */}
-          <div className="flex items-center gap-2">
-            <svg className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg>
-            {phone ? (
-              <a href={`tel:${phone}`} className="text-sm font-medium hover:underline" style={{ color: "#3b82f6" }}>{phone}</a>
-            ) : (
-              <span className="text-sm" style={{ color: "var(--t3)" }}>{"\u2014"}</span>
-            )}
-          </div>
-          {/* Address + directions */}
-          <div className="flex items-start gap-2">
-            <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm" style={{ color: "var(--t1)" }}>{address || "\u2014"}</p>
-              {address && (
-                <a
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1 inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium hover:shadow-sm"
-                  style={{ color: "#3b82f6", borderColor: "#3b82f6", background: "rgba(59,130,246,0.05)" }}
-                >
-                  Get Directions
-                </a>
-              )}
-            </div>
-          </div>
-          {/* Summary */}
-          <div className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
-            <p className="text-xs leading-relaxed" style={{ color: "var(--t1)" }}>{summary}</p>
-          </div>
-          {/* Link to full detail */}
-          <Link
-            href={`/tech/job/${job.id}`}
-            className="block text-center text-xs font-medium hover:underline"
-            style={{ color: "#3b82f6" }}
-          >
-            View Full Details
-          </Link>
-        </div>
+      {/* Phone */}
+      <div className="mt-1 flex items-center gap-1.5">
+        <svg className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg>
+        {phone ? (
+          <a href={`tel:${phone}`} className="text-sm font-medium hover:underline" style={{ color: "#3b82f6" }}>{phone}</a>
+        ) : (
+          <span className="text-sm" style={{ color: "var(--t3)" }}>{"\u2014"}</span>
+        )}
+      </div>
+
+      {/* Service + duration */}
+      <p className="mt-1 text-xs" style={{ color: "var(--t3)" }}>
+        {job.service_types?.name ?? "Service"}
+        {duration ? ` \u00b7 ${duration} min` : ""}
+        {job.drive_time_minutes ? ` \u00b7 ${job.drive_time_minutes} min drive` : ""}
+      </p>
+
+      {/* Address */}
+      <div className="mt-1 flex items-start gap-1.5">
+        <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+        <p className="text-sm" style={{ color: "var(--t1)" }}>{address || "\u2014"}</p>
+      </div>
+
+      {/* Directions button */}
+      {address && (
+        <a
+          href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition hover:shadow-sm"
+          style={{ color: "#3b82f6", borderColor: "#3b82f6", background: "rgba(59,130,246,0.05)" }}
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+          Get Directions
+        </a>
       )}
+
+      {/* Summary */}
+      <div className="mt-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+        <p className="text-xs leading-relaxed" style={{ color: "var(--t1)" }}>{summary}</p>
+      </div>
     </div>
   );
 }
