@@ -771,11 +771,34 @@ async function _generateAIResponseFromDb(
               bookingResponseOverride = `Great news, ${customerName}! Your appointment is booked — ${result.techName} will be heading your way ${dateStr}.${queueNote} We'll send you a heads-up when they're on the way.${bizPhone}`;
               console.log("[ai-response] STEP 2 SUCCESS — jobId:", result.jobId, "tech:", result.techName, "date:", dateStr);
 
-              // Clear stored slots
+              // Force state to booked — don't rely on AI setting this correctly
+              effectiveDecision.proposed_state_change = "booked";
+
+              // Build and persist conversation summary
+              const summaryDate = result.scheduledDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+              const summaryParts = [
+                pickedSlot.serviceTypeName ?? "Service",
+                addressText || "No address",
+                `${summaryDate} ${pickedSlot.windowStart ? pickedSlot.windowStart.replace(/^0/, "") : ""} with ${result.techName}`,
+              ];
+              const cachedSummary = summaryParts.join(" - ");
+
+              // Clear stored slots + write summary
               await db.conversations.update({
                 where: { id: conversationId },
-                data: { pending_booking_slots: null } as never,
+                data: {
+                  pending_booking_slots: null,
+                  cached_summary: cachedSummary,
+                } as never,
               });
+
+              // Write customer display_name if it's currently null
+              if (customerName && customerName !== "Customer") {
+                await db.customers.updateMany({
+                  where: { id: customerId, display_name: null },
+                  data: { display_name: customerName },
+                });
+              }
             } else {
               bookingResponseOverride = `That slot is no longer available — someone else may have grabbed it. Let me check for updated availability.`;
               effectiveDecision.proposed_state_change = null;
@@ -1030,6 +1053,14 @@ async function _generateAIResponseFromDb(
       await tx.conversations.update({
         where: { id: conversationId },
         data: convUpdate as never,
+      });
+    }
+
+    // Write collected name to customer record if display_name is currently null
+    if (collectedName) {
+      await tx.customers.updateMany({
+        where: { id: customerId, display_name: null },
+        data: { display_name: collectedName },
       });
     }
 
