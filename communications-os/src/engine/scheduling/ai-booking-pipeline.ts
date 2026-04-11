@@ -343,7 +343,9 @@ export async function generateAvailableSlots(
         if (windowWidth > 240) continue;
 
         // Filter by time-of-day preference using customer's cutoff time
-        if (timePreference === "MORNING" && windowStart >= cutoffMinutes) continue;
+        // Morning: entire window must end before cutoff (customer unavailable after cutoff)
+        // Afternoon: slot must start at or after cutoff (customer unavailable before cutoff)
+        if (timePreference === "MORNING" && windowEnd > cutoffMinutes) continue;
         if (timePreference === "AFTERNOON" && windowStart < cutoffMinutes) continue;
 
         // Build label
