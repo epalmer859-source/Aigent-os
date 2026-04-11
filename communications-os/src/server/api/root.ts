@@ -10,6 +10,7 @@ import { notificationsRouter } from "~/server/api/routers/notifications";
 import { analyticsRouter } from "~/server/api/routers/analytics";
 import { schedulingRouter } from "~/server/api/routers/scheduling";
 import { techDashboardRouter } from "~/server/api/routers/tech-dashboard";
+import { techAssistantRouter } from "~/server/api/routers/tech-assistant";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 
 export const appRouter = createTRPCRouter({
@@ -25,6 +26,7 @@ export const appRouter = createTRPCRouter({
   analytics: analyticsRouter,
   scheduling: schedulingRouter,
   techDashboard: techDashboardRouter,
+  techAssistant: techAssistantRouter,
 });
 
 export type AppRouter = typeof appRouter;

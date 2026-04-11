@@ -79,10 +79,19 @@ function IconSettings() {
   );
 }
 
+function IconChat() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+    </svg>
+  );
+}
+
 const NAV = [
-  { label: "My Jobs",    href: "/tech",           Icon: IconQueue },
-  { label: "Schedule",   href: "/tech/schedule",   Icon: IconSchedule },
-  { label: "Settings",   href: "/tech/settings",   Icon: IconSettings },
+  { label: "My Jobs",    href: "/tech",            Icon: IconQueue },
+  { label: "Schedule",   href: "/tech/schedule",    Icon: IconSchedule },
+  { label: "Assistant",  href: "/tech/assistant",   Icon: IconChat },
+  { label: "Settings",   href: "/tech/settings",    Icon: IconSettings },
 ] as const;
 
 // ── NavItem ────────────────────────────────────────────────────────────────
