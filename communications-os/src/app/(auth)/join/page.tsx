@@ -1,12 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { api } from "~/trpc/react";
 
 export default function JoinPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-gray-50"><p className="text-sm text-gray-400">Loading...</p></div>}>
+      <JoinContent />
+    </Suspense>
+  );
+}
+
+function JoinContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { update } = useSession();
