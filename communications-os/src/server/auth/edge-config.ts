@@ -14,6 +14,7 @@ export const edgeAuthConfig = {
       if (user) {
         token.id = user.id;
         token.businessId = (user as { businessId?: string | null }).businessId ?? null;
+        token.technicianId = (user as { technicianId?: string | null }).technicianId ?? null;
         token.role = (user as { role?: string }).role ?? "";
       }
       return token;
@@ -25,6 +26,7 @@ export const edgeAuthConfig = {
           id: token.id as string,
           email: token.email as string,
           businessId: (token.businessId as string | null) ?? null,
+          technicianId: (token.technicianId as string | null) ?? null,
           role: token.role as string,
         },
       };

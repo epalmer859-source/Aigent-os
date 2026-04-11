@@ -9,8 +9,11 @@ export default async function ChooseRolePage() {
     redirect("/sign-in");
   }
 
-  // Already onboarded — skip this page
+  // Already onboarded — route based on role
   if (session.user.businessId) {
+    if (session.user.role === "technician") {
+      redirect("/tech");
+    }
     redirect("/dashboard");
   }
 
@@ -42,10 +45,22 @@ export default async function ChooseRolePage() {
             className="flex flex-col gap-1 rounded-xl border-2 border-gray-200 bg-white p-6 transition hover:border-blue-500 hover:shadow-sm"
           >
             <span className="text-lg font-semibold text-gray-900">
-              I&apos;m Joining a Team
+              I&apos;m a Manager / Owner
             </span>
             <span className="text-sm text-gray-500">
-              Enter your team&apos;s join code to get started
+              Join an existing team with full dashboard access
+            </span>
+          </Link>
+
+          <Link
+            href="/join?role=technician"
+            className="flex flex-col gap-1 rounded-xl border-2 border-gray-200 bg-white p-6 transition hover:border-green-500 hover:shadow-sm"
+          >
+            <span className="text-lg font-semibold text-gray-900">
+              I&apos;m a Technician
+            </span>
+            <span className="text-sm text-gray-500">
+              Join your team and view your daily job queue
             </span>
           </Link>
         </div>

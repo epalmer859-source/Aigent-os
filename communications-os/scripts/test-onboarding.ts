@@ -10,7 +10,7 @@ function makeCtx(userId: string, email: string) {
   return {
     db,
     session: {
-      user: { id: userId, email, businessId: null as string | null, role: "owner" as string },
+      user: { id: userId, email, businessId: null as string | null, technicianId: null as string | null, role: "owner" as string },
       expires,
     },
     headers: new Headers(),

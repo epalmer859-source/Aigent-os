@@ -130,6 +130,7 @@ function IconX() {
 const NAV_MAIN = [
   { label: "Urgent",        href: "/dashboard/urgent",        Icon: IconUrgent,        urgentBadge: true  },
   { label: "Conversations", href: "/dashboard/conversations", Icon: IconConversations, urgentBadge: false },
+  { label: "Schedule",      href: "/dashboard/schedule",      Icon: IconCalendar,      urgentBadge: false },
   { label: "Quotes",        href: "/dashboard/quotes",        Icon: IconQuotes,        urgentBadge: false },
   { label: "Escalations",   href: "/dashboard/escalations",   Icon: IconEscalations,   urgentBadge: false },
 ] as const;

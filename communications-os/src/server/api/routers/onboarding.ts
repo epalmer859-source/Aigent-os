@@ -175,7 +175,12 @@ export const onboardingRouter = createTRPCRouter({
     }),
 
   join: protectedProcedure
-    .input(z.object({ joinCode: z.string().min(1, "Join code is required") }))
+    .input(
+      z.object({
+        joinCode: z.string().min(1, "Join code is required"),
+        technicianId: z.string().uuid().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
@@ -191,11 +196,67 @@ export const onboardingRouter = createTRPCRouter({
         });
       }
 
+      const role = input.technicianId ? "technician" : "admin";
+
+      // If joining as technician, verify the technician record belongs to this business
+      if (input.technicianId) {
+        const tech = await ctx.db.technicians.findUnique({
+          where: { id: input.technicianId },
+          select: { business_id: true },
+        });
+        if (!tech || tech.business_id !== business.id) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "That technician profile doesn't belong to this business",
+          });
+        }
+
+        // Check no other user is already linked to this technician
+        const existing = await ctx.db.users.findFirst({
+          where: { technician_id: input.technicianId },
+          select: { id: true },
+        });
+        if (existing) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Another account is already linked to this technician profile",
+          });
+        }
+      }
+
       await ctx.db.users.update({
         where: { id: userId },
-        data: { business_id: business.id, role: "admin" },
+        data: {
+          business_id: business.id,
+          role,
+          technician_id: input.technicianId ?? null,
+        },
       });
 
-      return { businessId: business.id };
+      return { businessId: business.id, role };
+    }),
+
+  listTechnicians: protectedProcedure
+    .input(z.object({ joinCode: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const business = await ctx.db.businesses.findFirst({
+        where: { join_code: input.joinCode },
+        select: { id: true },
+      });
+
+      if (!business) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Invalid join code",
+        });
+      }
+
+      const techs = await ctx.db.technicians.findMany({
+        where: { business_id: business.id, is_active: true },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      });
+
+      return techs;
     }),
 });

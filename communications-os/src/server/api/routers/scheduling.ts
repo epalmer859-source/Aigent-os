@@ -89,6 +89,24 @@ const cannedAiGenerator: AiTextGenerator = {
 // ── Router ─────────────────────────────────────────────────────
 
 export const schedulingRouter = createTRPCRouter({
+  // ── List technicians for this business ──────────────────────
+  listTechnicians: businessProcedure.query(async ({ ctx }) => {
+    return ctx.db.technicians.findMany({
+      where: { business_id: ctx.businessId },
+      select: {
+        id: true,
+        name: true,
+        is_active: true,
+        working_hours_start: true,
+        working_hours_end: true,
+        lunch_start: true,
+        lunch_end: true,
+        home_base_address: true,
+      },
+      orderBy: { name: "asc" },
+    });
+  }),
+
   // ── Booking ────────────────────────────────────────────────
   bookJob: businessProcedure
     .input(

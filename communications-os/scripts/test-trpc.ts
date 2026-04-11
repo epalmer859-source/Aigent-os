@@ -6,7 +6,7 @@ import { createCaller } from "../src/server/api/root.js";
 import { db } from "../src/server/db.js";
 
 type MockSession = {
-  user: { id: string; email: string; businessId: string | null; role: string };
+  user: { id: string; email: string; businessId: string | null; technicianId: string | null; role: string };
   expires: string;
 } | null;
 
@@ -30,7 +30,7 @@ async function main() {
 
   // Logged in, no business
   const caller_noBiz = createCaller(makeCtx({
-    user: { id: FAKE_UUID, email: "test@example.com", businessId: null, role: "owner" },
+    user: { id: FAKE_UUID, email: "test@example.com", businessId: null, technicianId: null, role: "owner" },
     expires,
   }));
   const pub2 = await caller_noBiz.test.hello();
@@ -72,7 +72,7 @@ async function main() {
 
   // Logged in, businessId set → OK
   const caller_hasBiz = createCaller(makeCtx({
-    user: { id: FAKE_UUID, email: "test@example.com", businessId: FAKE_UUID, role: "owner" },
+    user: { id: FAKE_UUID, email: "test@example.com", businessId: FAKE_UUID, technicianId: null, role: "owner" },
     expires,
   }));
   const biz = await caller_hasBiz.test.myBusiness();
@@ -99,7 +99,7 @@ async function main() {
 
   // Logged in, businessId set, role=admin → FORBIDDEN "Owner access required"
   const caller_admin = createCaller(makeCtx({
-    user: { id: FAKE_UUID, email: "admin@example.com", businessId: FAKE_UUID, role: "admin" },
+    user: { id: FAKE_UUID, email: "admin@example.com", businessId: FAKE_UUID, technicianId: null, role: "admin" },
     expires,
   }));
   try {

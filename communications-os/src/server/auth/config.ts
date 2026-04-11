@@ -10,11 +10,13 @@ declare module "next-auth" {
       id: string;
       email: string;
       businessId: string | null;
+      technicianId: string | null;
       role: string;
     };
   }
   interface User {
     businessId: string | null;
+    technicianId: string | null;
     role: string;
   }
 }
@@ -47,6 +49,7 @@ export const authConfig = {
           email: user.email,
           emailVerified: null,
           businessId: user.business_id,
+          technicianId: user.technician_id,
           role: user.role,
         };
       },
@@ -59,6 +62,7 @@ export const authConfig = {
       if (user) {
         token.id = user.id;
         token.businessId = user.businessId;
+        token.technicianId = user.technicianId;
         token.role = user.role;
       }
       // Re-fetch from DB when session.update() is called OR when businessId is missing
@@ -66,10 +70,11 @@ export const authConfig = {
       if (token.id && (trigger === "update" || !token.businessId)) {
         const fresh = await db.users.findUnique({
           where: { id: token.id as string },
-          select: { business_id: true, role: true },
+          select: { business_id: true, technician_id: true, role: true },
         });
         if (fresh) {
           token.businessId = fresh.business_id;
+          token.technicianId = fresh.technician_id;
           token.role = fresh.role;
         }
       }
@@ -82,6 +87,7 @@ export const authConfig = {
           id: token.id as string,
           email: token.email as string,
           businessId: (token.businessId as string | null) ?? null,
+          technicianId: (token.technicianId as string | null) ?? null,
           role: token.role as string,
         },
       };

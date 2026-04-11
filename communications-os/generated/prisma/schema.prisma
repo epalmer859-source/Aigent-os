@@ -648,6 +648,7 @@ model recurring_services {
 model users {
   id                                         String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   business_id                                String?             @db.Uuid
+  technician_id                              String?             @db.Uuid
   email                                      String              @unique
   display_name                               String?
   role                                       user_role
@@ -663,6 +664,7 @@ model users {
   parts_inquiries                            parts_inquiries[]
   quotes                                     quotes[]
   businesses_users_business_idTobusinesses   businesses?         @relation("users_business_idTobusinesses", fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  technicians                                technicians?        @relation(fields: [technician_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model web_chat_sessions {
@@ -886,6 +888,7 @@ enum tag_source {
 enum user_role {
   owner
   admin
+  technician
 }
 
 model twilio_config {
@@ -986,6 +989,7 @@ model technicians {
   capacity_reservations     capacity_reservations[]
   queue_arrangements        queue_arrangements[]
   starting_my_day_log       starting_my_day_log[]
+  users                     users[]
 
   @@index([business_id, is_active], map: "technicians_business_active_idx")
 }

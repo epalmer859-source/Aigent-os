@@ -134,3 +134,34 @@ export const businessProcedure = t.procedure
 export const ownerProcedure = t.procedure
   .use(timingMiddleware)
   .use(enforceOwner);
+
+/** Requires auth + businessId + role === "technician" + technicianId. */
+const enforceTechnician = t.middleware(({ ctx, next }) => {
+  if (!ctx.session?.user) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+  if (!ctx.session.user.businessId || !ctx.session.user.technicianId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Technician access required",
+    });
+  }
+  if (ctx.session.user.role !== "technician") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Technician access required",
+    });
+  }
+  return next({
+    ctx: {
+      session: ctx.session as NonNullable<TRPCContext["session"]> & { user: NonNullable<NonNullable<TRPCContext["session"]>["user"]> },
+      businessId: ctx.session.user.businessId,
+      technicianId: ctx.session.user.technicianId,
+    },
+  });
+});
+
+/** Must be logged in + technician role + linked technicianId. Adds ctx.businessId + ctx.technicianId. */
+export const technicianProcedure = t.procedure
+  .use(timingMiddleware)
+  .use(enforceTechnician);

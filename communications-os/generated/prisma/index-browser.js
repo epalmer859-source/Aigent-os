@@ -595,6 +595,7 @@ exports.Prisma.Recurring_servicesScalarFieldEnum = {
 exports.Prisma.UsersScalarFieldEnum = {
   id: 'id',
   business_id: 'business_id',
+  technician_id: 'technician_id',
   email: 'email',
   display_name: 'display_name',
   role: 'role',
@@ -1033,7 +1034,8 @@ exports.recurring_change_request_status = exports.$Enums.recurring_change_reques
 
 exports.user_role = exports.$Enums.user_role = {
   owner: 'owner',
-  admin: 'admin'
+  admin: 'admin',
+  technician: 'technician'
 };
 
 exports.VolatilityTier = exports.$Enums.VolatilityTier = {
