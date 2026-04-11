@@ -1064,6 +1064,25 @@ async function _generateAIResponseFromDb(
       });
     }
 
+    // Write collected phone to customer_contacts so techs see a real number
+    if (collectedPhone) {
+      // Upsert: only create if no phone contact exists yet for this customer
+      const existingPhone = await tx.customer_contacts.findFirst({
+        where: { customer_id: customerId, contact_type: "phone" },
+      });
+      if (!existingPhone) {
+        await tx.customer_contacts.create({
+          data: {
+            customer_id: customerId,
+            business_id: businessId,
+            contact_type: "phone",
+            contact_value: collectedPhone,
+            is_primary: true,
+          },
+        });
+      }
+    }
+
     return { msgId: msg.id, queueId: q.id };
   });
 

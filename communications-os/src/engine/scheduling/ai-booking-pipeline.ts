@@ -429,6 +429,7 @@ export async function bookSelectedSlot(
     totalCostMinutes: slot.totalCostMinutes,
     addressLat: 0, // V1: approximate — will be updated when geocoding is added
     addressLng: 0,
+    addressText: input.addressText,
     serviceType: slot.serviceTypeId,
   };
 

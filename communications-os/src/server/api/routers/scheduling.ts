@@ -120,6 +120,7 @@ export const schedulingRouter = createTRPCRouter({
         totalCostMinutes: z.number().int().positive(),
         addressLat: z.number(),
         addressLng: z.number(),
+        addressText: z.string().default(""),
         serviceType: z.string().uuid(),
       }),
     )

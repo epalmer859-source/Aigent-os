@@ -2,6 +2,20 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, technicianProcedure } from "~/server/api/trpc";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Resolve the best phone number: prefer customer_contacts phone, fall back to contact_handle only if it's not a UUID. */
+function resolvePhone(
+  contacts: { contact_type: string; contact_value: string }[],
+  contactHandle: string | null | undefined,
+): string | null {
+  const phoneContact = contacts.find((c) => c.contact_type === "phone");
+  if (phoneContact) return phoneContact.contact_value;
+  // contact_handle may be a web-chat session UUID — don't show that as a phone number
+  if (contactHandle && !UUID_RE.test(contactHandle)) return contactHandle;
+  return null;
+}
+
 export const techDashboardRouter = createTRPCRouter({
   /** Get today's job queue for the authenticated technician */
   myJobs: technicianProcedure
@@ -53,21 +67,17 @@ export const techDashboardRouter = createTRPCRouter({
         orderBy: { queue_position: "asc" },
       });
 
-      return jobs.map((j) => {
-        const contacts = j.customers?.customer_contacts ?? [];
-        const phoneContact = contacts.find((c) => c.contact_type === "phone")
-          ?? contacts[0]; // fall back to any contact
-        const convPhone = j.customers?.conversations?.[0]?.contact_handle ?? null;
-
-        return {
+      return jobs.map((j) => ({
           ...j,
-          customer_phone: phoneContact?.contact_value ?? convPhone ?? null,
+          customer_phone: resolvePhone(
+            j.customers?.customer_contacts ?? [],
+            j.customers?.conversations?.[0]?.contact_handle,
+          ),
           job_summary:
             j.appointments?.conversations?.cached_summary
             ?? j.customers?.conversations?.[0]?.cached_summary
             ?? null,
-        };
-      });
+      }));
     }),
 
   /** Update job status (en route, arrived, in progress, completed, etc.) */
@@ -181,14 +191,12 @@ export const techDashboardRouter = createTRPCRouter({
         });
       }
 
-      const contacts = job.customers?.customer_contacts ?? [];
-      const phoneContact = contacts.find((c) => c.contact_type === "phone")
-        ?? contacts[0];
-      const convPhone = job.customers?.conversations?.[0]?.contact_handle ?? null;
-
       return {
         ...job,
-        customer_phone: phoneContact?.contact_value ?? convPhone ?? null,
+        customer_phone: resolvePhone(
+          job.customers?.customer_contacts ?? [],
+          job.customers?.conversations?.[0]?.contact_handle,
+        ),
         job_summary:
           job.appointments?.conversations?.cached_summary
           ?? job.customers?.conversations?.[0]?.cached_summary
@@ -237,21 +245,17 @@ export const techDashboardRouter = createTRPCRouter({
       orderBy: [{ scheduled_date: "asc" }, { queue_position: "asc" }],
     });
 
-    return jobs.map((j) => {
-      const contacts = j.customers?.customer_contacts ?? [];
-      const phoneContact = contacts.find((c) => c.contact_type === "phone")
-        ?? contacts[0];
-      const convPhone = j.customers?.conversations?.[0]?.contact_handle ?? null;
-
-      return {
+    return jobs.map((j) => ({
         ...j,
-        customer_phone: phoneContact?.contact_value ?? convPhone ?? null,
+        customer_phone: resolvePhone(
+          j.customers?.customer_contacts ?? [],
+          j.customers?.conversations?.[0]?.contact_handle,
+        ),
         job_summary:
           j.appointments?.conversations?.cached_summary
           ?? j.customers?.conversations?.[0]?.cached_summary
           ?? null,
-      };
-    });
+    }));
   }),
 
   /** Get completed job history (paginated) */
@@ -309,21 +313,17 @@ export const techDashboardRouter = createTRPCRouter({
       ]);
 
       const hasMore = jobs.length > take;
-      const items = (hasMore ? jobs.slice(0, take) : jobs).map((j) => {
-        const contacts = j.customers?.customer_contacts ?? [];
-        const phoneContact = contacts.find((c) => c.contact_type === "phone")
-          ?? contacts[0];
-        const convPhone = j.customers?.conversations?.[0]?.contact_handle ?? null;
-
-        return {
+      const items = (hasMore ? jobs.slice(0, take) : jobs).map((j) => ({
           ...j,
-          customer_phone: phoneContact?.contact_value ?? convPhone ?? null,
+          customer_phone: resolvePhone(
+            j.customers?.customer_contacts ?? [],
+            j.customers?.conversations?.[0]?.contact_handle,
+          ),
           job_summary:
             j.appointments?.conversations?.cached_summary
             ?? j.customers?.conversations?.[0]?.cached_summary
             ?? null,
-        };
-      });
+      }));
 
       return { items, total, hasMore, nextCursor: skip + take };
     }),
@@ -420,21 +420,17 @@ export const techDashboardRouter = createTRPCRouter({
       take: 50,
     });
 
-    return jobs.map((j) => {
-      const contacts = j.customers?.customer_contacts ?? [];
-      const phoneContact = contacts.find((c) => c.contact_type === "phone")
-        ?? contacts[0];
-      const convPhone = j.customers?.conversations?.[0]?.contact_handle ?? null;
-
-      return {
+    return jobs.map((j) => ({
         ...j,
-        customer_phone: phoneContact?.contact_value ?? convPhone ?? null,
+        customer_phone: resolvePhone(
+          j.customers?.customer_contacts ?? [],
+          j.customers?.conversations?.[0]?.contact_handle,
+        ),
         job_summary:
           j.appointments?.conversations?.cached_summary
           ?? j.customers?.conversations?.[0]?.cached_summary
           ?? null,
-      };
-    });
+    }));
   }),
 
   /** Get technician's own profile info (full details for settings) */

@@ -35,6 +35,7 @@ export interface BookingRequest {
   totalCostMinutes: number;
   addressLat: number;
   addressLng: number;
+  addressText: string;
   serviceType: string;
 }
 
@@ -60,6 +61,7 @@ export interface BookingOrchestratorDb {
     totalCostMinutes: number;
     addressLat: number;
     addressLng: number;
+    addressText: string;
     serviceType: string;
   }): Promise<void>;
 
@@ -159,6 +161,7 @@ export async function bookJob(
       totalCostMinutes: request.totalCostMinutes,
       addressLat: request.addressLat,
       addressLng: request.addressLng,
+      addressText: request.addressText,
       serviceType: request.serviceType,
     });
 

@@ -346,7 +346,7 @@ export function createBookingOrchestratorDb(prisma: PrismaClient): BookingOrches
           drive_time_minutes: 0,
           address_lat: job.addressLat,
           address_lng: job.addressLng,
-          address_text: "",
+          address_text: job.addressText || "",
           queue_version: 0,
           rebook_count: 0,
         },

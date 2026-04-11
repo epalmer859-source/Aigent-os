@@ -42,6 +42,7 @@ function makeRequest(overrides: Partial<BookingRequest> = {}): BookingRequest {
     totalCostMinutes: 60,
     addressLat: 40.72,
     addressLng: -74.01,
+    addressText: "123 Test St",
     serviceType: "service-type-1",
     ...overrides,
   };
