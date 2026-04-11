@@ -140,13 +140,15 @@ export const techDashboardRouter = createTRPCRouter({
       return job;
     }),
 
-  /** Get technician's own profile info */
+  /** Get technician's own profile info (full details for settings) */
   myProfile: technicianProcedure.query(async ({ ctx }) => {
     const tech = await ctx.db.technicians.findUnique({
       where: { id: ctx.technicianId },
       select: {
         id: true,
         name: true,
+        phone: true,
+        home_base_address: true,
         working_hours_start: true,
         working_hours_end: true,
         lunch_start: true,
@@ -156,5 +158,70 @@ export const techDashboardRouter = createTRPCRouter({
     });
 
     return tech;
+  }),
+
+  /** Update technician's own profile */
+  updateMyProfile: technicianProcedure
+    .input(
+      z.object({
+        name: z.string().min(1).max(100).optional(),
+        phone: z.string().max(20).optional(),
+        home_base_address: z.string().max(500).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.technicians.update({
+        where: { id: ctx.technicianId },
+        data: {
+          ...(input.name !== undefined && { name: input.name }),
+          ...(input.phone !== undefined && { phone: input.phone || null }),
+          ...(input.home_base_address !== undefined && { home_base_address: input.home_base_address }),
+          updated_at: new Date(),
+        },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          home_base_address: true,
+        },
+      });
+    }),
+
+  /** List all team members (users) with roles — visible to technicians */
+  teamMembers: technicianProcedure.query(async ({ ctx }) => {
+    return ctx.db.users.findMany({
+      where: { business_id: ctx.businessId },
+      select: {
+        id: true,
+        email: true,
+        display_name: true,
+        role: true,
+      },
+      orderBy: [{ role: "asc" }, { created_at: "asc" }],
+    });
+  }),
+
+  /** List all technicians — name + phone only, no addresses (except own) */
+  allTechnicians: technicianProcedure.query(async ({ ctx }) => {
+    const techs = await ctx.db.technicians.findMany({
+      where: { business_id: ctx.businessId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        is_active: true,
+        home_base_address: true,
+      },
+      orderBy: { name: "asc" },
+    });
+
+    // Strip address from other technicians — only show own address
+    return techs.map((t) => ({
+      id: t.id,
+      name: t.name,
+      phone: t.phone,
+      is_active: t.is_active,
+      home_base_address: t.id === ctx.technicianId ? t.home_base_address : null,
+    }));
   }),
 });

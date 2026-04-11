@@ -971,6 +971,7 @@ model technicians {
   id                        String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   business_id               String                  @db.Uuid
   name                      String
+  phone                     String?
   home_base_lat             Float
   home_base_lng             Float
   home_base_address         String

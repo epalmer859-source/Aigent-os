@@ -631,6 +631,7 @@ exports.Prisma.TechniciansScalarFieldEnum = {
   id: 'id',
   business_id: 'business_id',
   name: 'name',
+  phone: 'phone',
   home_base_lat: 'home_base_lat',
   home_base_lng: 'home_base_lng',
   home_base_address: 'home_base_address',
