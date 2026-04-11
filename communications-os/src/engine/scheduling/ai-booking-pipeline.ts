@@ -18,7 +18,7 @@
 // ============================================================
 
 import { classifyServiceType, getBookedDuration, getUnknownTierDuration, type ServiceTypeRecord } from "./duration-intelligence";
-import { getValidInsertionPoints, type QueuedJob } from "./queue-insertion";
+import type { QueuedJob } from "./queue-insertion";
 import { bookJob, type BookingRequest, type BookingOutcome } from "./booking-orchestrator";
 import { checkCapacity, parseHHMM, calculateAvailableMinutes, type CapacityDb, type TimePreference, type TechProfile } from "./capacity-math";
 import type { BookingOrchestratorDb } from "./booking-orchestrator";
@@ -126,51 +126,85 @@ function isWeekend(date: Date): boolean {
 }
 
 /**
- * Walk a tech's queue for a given date and compute the projected start time
- * (in minutes from midnight) at each valid insertion position.
+ * Compute all available time windows for a tech on a given day.
+ *
+ * Walks the working day, accounts for existing queued jobs and lunch,
+ * and finds every gap where a job of `jobDurationMinutes` could fit.
+ * Returns multiple windows per day (morning, afternoon, etc.) rather
+ * than one-per-queue-position.
  */
-function computeProjectedStarts(
+function computeAvailableWindows(
   queue: QueuedJob[],
   tech: TechCandidate,
-): { position: number; startMinutes: number }[] {
+  jobDurationMinutes: number,
+): { startMinutes: number; queuePosition: number }[] {
   const workStart = parseHHMM(tech.workingHoursStart);
   const lunchStart = parseHHMM(tech.lunchStart);
   const lunchEnd = parseHHMM(tech.lunchEnd);
   const workEnd = parseHHMM(tech.workingHoursEnd);
+  const overtime = tech.overtimeCapMinutes ?? 0;
+  const dayEnd = workEnd + overtime;
 
-  const results: { position: number; startMinutes: number }[] = [];
-
-  // Walk through queue positions, accumulating time
-  let cursor = workStart; // minutes from midnight
-
-  for (let pos = 0; pos <= queue.length; pos++) {
-    // Record this position's projected start
-    let effectiveCursor = cursor;
-
-    // If cursor is in lunch break, push to after lunch
-    if (effectiveCursor >= lunchStart && effectiveCursor < lunchEnd) {
-      effectiveCursor = lunchEnd;
+  // Build a list of occupied intervals from the existing queue
+  const occupied: { start: number; end: number }[] = [];
+  let cursor = workStart;
+  for (const job of queue) {
+    // Skip lunch
+    if (cursor >= lunchStart && cursor < lunchEnd) {
+      cursor = lunchEnd;
     }
-
-    // Only include if still within working hours
-    if (effectiveCursor < workEnd) {
-      results.push({ position: pos, startMinutes: effectiveCursor });
-    }
-
-    // Advance cursor past the job at this position (if one exists)
-    if (pos < queue.length) {
-      const job = queue[pos]!;
-      const jobDuration = job.estimatedDurationMinutes + job.driveTimeMinutes;
-      cursor += jobDuration;
-
-      // Skip over lunch if the job pushed us into it
-      if (cursor > lunchStart && cursor < lunchEnd) {
-        cursor = lunchEnd;
-      }
+    const jobDuration = job.estimatedDurationMinutes + job.driveTimeMinutes;
+    occupied.push({ start: cursor, end: cursor + jobDuration });
+    cursor += jobDuration;
+    // Skip lunch if job pushed us into it
+    if (cursor > lunchStart && cursor < lunchEnd) {
+      cursor = lunchEnd;
     }
   }
 
-  return results;
+  // Find all gaps in the day where the new job could fit
+  const windows: { startMinutes: number; queuePosition: number }[] = [];
+  let searchStart = workStart;
+
+  for (let i = 0; i <= occupied.length; i++) {
+    const gapEnd = i < occupied.length ? occupied[i]!.start : dayEnd;
+    let gapStart = searchStart;
+
+    // Skip lunch if gap starts in lunch
+    if (gapStart >= lunchStart && gapStart < lunchEnd) {
+      gapStart = lunchEnd;
+    }
+
+    // Within this gap, enumerate all non-overlapping windows
+    let windowStart = gapStart;
+    while (windowStart + jobDurationMinutes <= gapEnd) {
+      // Skip lunch: if window would span lunch, jump to after lunch
+      if (windowStart < lunchStart && windowStart + jobDurationMinutes > lunchStart) {
+        windowStart = lunchEnd;
+        continue;
+      }
+      // Skip if we're in lunch
+      if (windowStart >= lunchStart && windowStart < lunchEnd) {
+        windowStart = lunchEnd;
+        continue;
+      }
+
+      // Must fit within day end
+      if (windowStart + jobDurationMinutes > dayEnd) break;
+
+      windows.push({ startMinutes: windowStart, queuePosition: i });
+
+      // Advance by the job duration + 15 min buffer to find next window
+      windowStart += jobDurationMinutes + 15;
+    }
+
+    // Advance search past this occupied interval
+    if (i < occupied.length) {
+      searchStart = occupied[i]!.end;
+    }
+  }
+
+  return windows;
 }
 
 // ── Step 1: Generate Available Slots ──────────────────────────────────────────
@@ -256,41 +290,15 @@ export async function generateAvailableSlots(
       // Get current queue for this tech on this date
       const queue = await deps.getQueueForTechDate(tech.id, date);
 
-      // Get valid insertion points
-      const newJobInput = {
-        id: "slot-check",
-        addressLat: tech.homeBaseLat,
-        addressLng: tech.homeBaseLng,
-        timePreference,
-        totalCostMinutes,
-      };
-      const validPositions = getValidInsertionPoints(queue, newJobInput);
-      if (validPositions.length === 0) continue;
-
-      // Compute projected start times for all positions
-      const projectedStarts = computeProjectedStarts(queue, tech);
+      // Compute all available time windows (morning, afternoon, etc.)
+      const windows = computeAvailableWindows(queue, tech, totalCostMinutes);
+      if (windows.length === 0) continue;
 
       const lunchStart = parseHHMM(tech.lunchStart);
-      const lunchEnd = parseHHMM(tech.lunchEnd);
-      const workEnd = parseHHMM(tech.workingHoursEnd);
 
-      for (const pos of validPositions) {
-        // Find the projected start for this position
-        const projected = projectedStarts.find((p) => p.position === pos);
-        if (!projected) continue;
-
-        const rawStart = projected.startMinutes;
+      for (const window of windows) {
+        const rawStart = window.startMinutes;
         const rawEnd = rawStart + totalCostMinutes;
-
-        // Filter: must fit within working hours
-        if (rawEnd > workEnd + (tech.overtimeCapMinutes ?? 0)) continue;
-
-        // Filter: must not overlap lunch break
-        if (rawStart < lunchEnd && rawEnd > lunchStart && !(rawEnd <= lunchStart || rawStart >= lunchEnd)) {
-          // The job would span the lunch break — skip
-          // (unless it fits entirely before or after lunch)
-          if (!(rawEnd <= lunchStart || rawStart >= lunchEnd)) continue;
-        }
 
         // Round to nearest 15 minutes for display
         const windowStart = roundTo15(rawStart);
@@ -319,7 +327,7 @@ export async function generateAvailableSlots(
           technicianId: tech.id,
           techName: tech.name,
           date: date.toISOString().split("T")[0]!,
-          queuePosition: pos,
+          queuePosition: window.queuePosition,
           windowStart: formatTime24(windowStart),
           windowEnd: formatTime24(windowEnd),
           label,
@@ -332,13 +340,20 @@ export async function generateAvailableSlots(
     }
   }
 
-  // Sort: date ascending, then windowStart ascending
+  // Sort: windowStart ascending across all dates (Monday 1PM before Tuesday 8AM)
   slots.sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    const dateCompare = a.date.localeCompare(b.date);
+    if (dateCompare !== 0) return dateCompare;
     return a.windowStart.localeCompare(b.windowStart);
   });
 
-  // Re-index after sort
+  // Cap at 10 slots to avoid overwhelming the customer
+  const MAX_SLOTS = 10;
+  if (slots.length > MAX_SLOTS) {
+    slots.length = MAX_SLOTS;
+  }
+
+  // Re-index after sort and cap
   slots.forEach((s, i) => { s.index = i + 1; });
 
   if (slots.length === 0) {
