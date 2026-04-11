@@ -550,7 +550,7 @@ async function _generateAIResponseFromDb(
       console.log("[ai-response] claude raw response (first 300 chars):", raw.slice(0, 300));
       decision = _parseDecision(raw);
       if (decision !== null) {
-        console.log("[ai-response] decision parsed successfully");
+        console.log("[ai-response] decision parsed successfully, confidence:", decision.confidence, "intent:", decision.detected_intent, "bookingConfirmed:", decision.bookingConfirmed, "selectedSlot:", decision.selectedSlot);
         break;
       }
       lastError = "Failed to parse AI response as JSON";
@@ -642,6 +642,7 @@ async function _generateAIResponseFromDb(
   let bookingResponseOverride: string | null = null;
 
   if (bookingTriggered) {
+    const bookingStartTime = Date.now();
     try {
       const { generateAvailableSlots, bookSelectedSlot } = await import("~/engine/scheduling/ai-booking-pipeline");
       const { createBookingOrchestratorDb, createCapacityDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
@@ -847,10 +848,11 @@ async function _generateAIResponseFromDb(
           console.warn("[ai-response] STEP 1 — no slots:", slotResult.reason);
         }
       }
+      console.log("[ai-response] booking pipeline completed in", Date.now() - bookingStartTime, "ms");
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const errStack = err instanceof Error ? err.stack : "";
-      console.error("[ai-response] BOOKING PIPELINE ERROR:", errMsg);
+      console.error("[ai-response] BOOKING PIPELINE ERROR after", Date.now() - bookingStartTime, "ms:", errMsg);
       console.error("[ai-response] BOOKING PIPELINE STACK:", errStack);
       bookingResponseOverride = `I'm having trouble checking availability right now — let me connect you with our team. Someone will reach out shortly to get your appointment scheduled!`;
       effectiveDecision.proposed_state_change = null;
@@ -862,6 +864,7 @@ async function _generateAIResponseFromDb(
 
   // Validate.
   const validation = validateAIDecision(effectiveDecision, conversationState);
+  console.log("[ai-response] validation result:", { confidencePassed: validation.confidencePassed, stateChangeAllowed: validation.stateChangeAllowed, handoffValid: validation.handoffValid, errors: validation.errors, actualConfidence: effectiveDecision.confidence, threshold: CONFIDENCE_THRESHOLD });
 
   let responseText = bookingResponseOverride ?? effectiveDecision.response_text;
   if (!validation.confidencePassed && !bookingResponseOverride) {

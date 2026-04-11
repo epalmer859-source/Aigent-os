@@ -153,14 +153,22 @@ export const AI_TEMPERATURE = 0.7;
 /**
  * Minimum confidence score required to use the AI decision.
  * Below this threshold → FALLBACK_RESPONSE is sent instead.
+ * Lowered from 0.6 to 0.4 — short/casual customer messages like
+ * "not cooling at all" and "soonest available" were being incorrectly
+ * flagged as low-confidence, triggering the fallback loop.
  */
-export const CONFIDENCE_THRESHOLD = 0.6;
+export const CONFIDENCE_THRESHOLD = 0.4;
 
 /** Maximum number of Claude call attempts before using fallback. */
 export const MAX_RETRIES = 1;
 
-/** Milliseconds before a Claude API call is considered timed out. */
-export const AI_TIMEOUT_MS = 10000;
+/**
+ * Milliseconds before a Claude API call is considered timed out.
+ * Increased from 10s to 30s — the system prompt with scheduling rules,
+ * state instructions, and booking schema is large. 10s was causing
+ * timeouts on normal responses, which triggered the fallback path.
+ */
+export const AI_TIMEOUT_MS = 30000;
 
 /**
  * Sent to the customer when all Claude call attempts fail.
