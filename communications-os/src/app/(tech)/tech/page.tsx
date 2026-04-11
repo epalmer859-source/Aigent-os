@@ -176,17 +176,26 @@ function TodayTab() {
       {/* Active jobs */}
       {activeJobs && activeJobs.length > 0 && (
         <div className="space-y-3">
-          {activeJobs.map((job, idx) => (
-            <JobCard
-              key={job.id}
-              job={job}
-              position={idx + 1}
-              onStatusChange={(status) =>
-                updateStatus.mutate({ jobId: job.id, status })
-              }
-              isUpdating={updateStatus.isPending}
-            />
-          ))}
+          {activeJobs.map((job, idx) => {
+            // A job is "next" if it's NOT_STARTED and no earlier job is also NOT_STARTED,
+            // or if it's currently EN_ROUTE/ARRIVED/IN_PROGRESS (already active)
+            const isActive = ["EN_ROUTE", "ARRIVED", "IN_PROGRESS"].includes(job.status);
+            const firstNotStarted = activeJobs.findIndex((j: any) => j.status === "NOT_STARTED");
+            const isNextInQueue = isActive || idx === firstNotStarted;
+
+            return (
+              <JobCard
+                key={job.id}
+                job={job}
+                position={idx + 1}
+                onStatusChange={(status) =>
+                  updateStatus.mutate({ jobId: job.id, status })
+                }
+                isUpdating={updateStatus.isPending}
+                isNextInQueue={isNextInQueue}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -572,81 +581,50 @@ function JobCard({
   position,
   onStatusChange,
   isUpdating,
+  isNextInQueue,
 }: {
   job: any;
   position: number;
   onStatusChange: (status: "NOT_STARTED" | "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "COMPLETED" | "INCOMPLETE" | "NEEDS_REBOOK") => void;
   isUpdating: boolean;
+  isNextInQueue?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const statusInfo = STATUS_COLORS[job.status as string] ?? STATUS_COLORS.NOT_STARTED!;
   const nextStatus = NEXT_STATUS[job.status as string];
   const actionLabel = nextStatus ? ACTION_LABELS[nextStatus] : undefined;
+  const customerName = job.customers?.display_name || "\u2014";
+  const phone = job.customer_phone as string | null;
+  const address = job.address_text as string | null;
+  const summary = (job.job_summary || job.service_types?.name || "\u2014") as string;
 
   return (
     <div
-      className="rounded-xl border p-4"
+      className="overflow-hidden rounded-xl border transition-shadow"
       style={{
         background: "var(--bg-elevated)",
-        borderColor: "var(--border)",
+        borderColor: expanded ? "#3b82f6" : "var(--border)",
+        boxShadow: expanded ? "0 2px 8px rgba(0,0,0,0.08)" : undefined,
       }}
     >
-      <div className="flex items-start justify-between gap-3">
+      {/* Collapsed header — always visible, tap to expand */}
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+      >
+        <span
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+          style={{ background: "var(--bg-hover)", color: "var(--t2)" }}
+        >
+          {position}
+        </span>
         <div className="min-w-0 flex-1">
-          {/* Customer name */}
-          <div className="flex items-center gap-2">
-            <span
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-              style={{ background: "var(--bg-hover)", color: "var(--t2)" }}
-            >
-              {position}
-            </span>
-            <Link
-              href={`/tech/job/${job.id}`}
-              className="truncate text-sm font-semibold hover:underline"
-              style={{ color: "var(--t1)" }}
-            >
-              {job.customers?.display_name || "\u2014"}
-            </Link>
-          </div>
-          {/* Phone number */}
-          <div className="ml-8 mt-1">
-            {job.customer_phone ? (
-              <a
-                href={`tel:${job.customer_phone}`}
-                className="text-xs font-medium hover:underline"
-                style={{ color: "#3b82f6" }}
-              >
-                {job.customer_phone}
-              </a>
-            ) : (
-              <span className="text-xs" style={{ color: "var(--t3)" }}>{"\u2014"}</span>
-            )}
-          </div>
-          <p className="ml-8 mt-0.5 text-xs" style={{ color: "var(--t3)" }}>
-            {job.service_types?.name ?? "Service"} &middot;{" "}
-            {job.estimated_duration_minutes} min &middot;{" "}
-            {job.drive_time_minutes} min drive
+          <p className="truncate text-sm font-semibold" style={{ color: "var(--t1)" }}>
+            {customerName}
           </p>
-          {/* Address + directions link */}
-          <div className="ml-8 mt-0.5">
-            {job.address_text ? (
-              <a
-                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address_text)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 truncate text-xs hover:underline"
-                style={{ color: "#3b82f6" }}
-              >
-                <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
-                {job.address_text}
-              </a>
-            ) : (
-              <span className="text-xs" style={{ color: "var(--t3)" }}>{"\u2014"}</span>
-            )}
-          </div>
-          {/* Job summary */}
-          <p className="ml-8 mt-1.5 rounded-lg border px-3 py-2 text-xs leading-relaxed" style={{ color: "var(--t2)", borderColor: "var(--border)", background: "var(--bg)" }}>
-            {job.job_summary || job.service_types?.name || "\u2014"}
+          <p className="truncate text-xs" style={{ color: "var(--t3)" }}>
+            {job.service_types?.name ?? "Service"} &middot; {job.estimated_duration_minutes} min
           </p>
         </div>
         <span
@@ -655,20 +633,141 @@ function JobCard({
         >
           {statusInfo.label}
         </span>
-      </div>
+        <svg
+          className={`h-4 w-4 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+          style={{ color: "var(--t3)" }}
+          viewBox="0 0 20 20"
+          fill="currentColor"
+        >
+          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+        </svg>
+      </button>
 
-      {actionLabel && nextStatus && (
-        <div className="ml-8 mt-3">
-          <button
-            onClick={() => onStatusChange(nextStatus as "NOT_STARTED" | "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "COMPLETED" | "INCOMPLETE" | "NEEDS_REBOOK")}
-            disabled={isUpdating}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-white transition disabled:opacity-60"
-            style={{
-              background: nextStatus === "COMPLETED" ? "#16a34a" : "#3b82f6",
-            }}
-          >
-            {isUpdating ? "Updating..." : actionLabel}
-          </button>
+      {/* Expanded details */}
+      {expanded && (
+        <div className="space-y-3 border-t px-4 pb-4 pt-3" style={{ borderColor: "var(--border)" }}>
+          {/* Phone */}
+          <div className="flex items-center gap-2">
+            <svg className="h-4 w-4 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg>
+            {phone ? (
+              <a
+                href={`tel:${phone}`}
+                className="text-sm font-medium hover:underline"
+                style={{ color: "#3b82f6" }}
+              >
+                {phone}
+              </a>
+            ) : (
+              <span className="text-sm" style={{ color: "var(--t3)" }}>{"\u2014"}</span>
+            )}
+          </div>
+
+          {/* Address */}
+          <div className="flex items-start gap-2">
+            <svg className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm" style={{ color: "var(--t1)" }}>
+                {address || "\u2014"}
+              </p>
+              {address && (
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition hover:shadow-sm"
+                  style={{ color: "#3b82f6", borderColor: "#3b82f6", background: "rgba(59,130,246,0.05)" }}
+                >
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-11.25a.75.75 0 00-1.5 0v4.59L7.3 9.24a.75.75 0 00-1.1 1.02l3.25 3.5a.75.75 0 001.1 0l3.25-3.5a.75.75 0 10-1.1-1.02l-1.95 2.1V6.75z" clipRule="evenodd" /></svg>
+                  Get Directions
+                </a>
+              )}
+            </div>
+          </div>
+
+          {/* Duration + drive time */}
+          <div className="flex items-center gap-2">
+            <svg className="h-4 w-4 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" /></svg>
+            <span className="text-sm" style={{ color: "var(--t2)" }}>
+              {job.estimated_duration_minutes} min job &middot; {job.drive_time_minutes} min drive
+            </span>
+          </div>
+
+          {/* Job summary */}
+          <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+            <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--t3)" }}>Job Details</p>
+            <p className="mt-1 text-sm leading-relaxed" style={{ color: "var(--t1)" }}>
+              {summary}
+            </p>
+          </div>
+
+          {/* Job notes */}
+          {job.job_notes && (
+            <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "#fbbf24", background: "rgba(251,191,36,0.05)" }}>
+              <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "#92400e" }}>Notes</p>
+              <p className="mt-1 text-sm leading-relaxed" style={{ color: "var(--t1)" }}>
+                {job.job_notes}
+              </p>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex flex-wrap gap-2 pt-1">
+            {job.status === "NOT_STARTED" && isNextInQueue && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onStatusChange("EN_ROUTE"); }}
+                disabled={isUpdating}
+                className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
+                style={{ background: "#3b82f6" }}
+              >
+                {isUpdating ? "Updating..." : "Start Driving"}
+              </button>
+            )}
+            {job.status === "EN_ROUTE" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onStatusChange("ARRIVED"); }}
+                disabled={isUpdating}
+                className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
+                style={{ background: "#f59e0b" }}
+              >
+                {isUpdating ? "Updating..." : "Mark Arrived"}
+              </button>
+            )}
+            {job.status === "ARRIVED" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onStatusChange("IN_PROGRESS"); }}
+                disabled={isUpdating}
+                className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
+                style={{ background: "#6366f1" }}
+              >
+                {isUpdating ? "Updating..." : "Start Job"}
+              </button>
+            )}
+            {job.status === "IN_PROGRESS" && (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onStatusChange("COMPLETED"); }}
+                  disabled={isUpdating}
+                  className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
+                  style={{ background: "#16a34a" }}
+                >
+                  {isUpdating ? "Updating..." : "Complete Job"}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onStatusChange("INCOMPLETE"); }}
+                  disabled={isUpdating}
+                  className="rounded-lg border px-4 py-2.5 text-sm font-medium transition disabled:opacity-60"
+                  style={{ borderColor: "#ef4444", color: "#ef4444" }}
+                >
+                  Incomplete
+                </button>
+              </>
+            )}
+            {(job.status === "NOT_STARTED" && !isNextInQueue) && (
+              <p className="w-full text-center text-xs" style={{ color: "var(--t3)" }}>
+                Complete the job above first
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -676,73 +775,98 @@ function JobCard({
 }
 
 function CompactJobRow({ job }: { job: any }) {
+  const [expanded, setExpanded] = useState(false);
   const statusInfo = STATUS_COLORS[job.status as string] ?? STATUS_COLORS.COMPLETED!;
+  const customerName = job.customers?.display_name || "\u2014";
+  const phone = job.customer_phone as string | null;
+  const address = job.address_text as string | null;
+  const summary = (job.job_summary || job.service_types?.name || "\u2014") as string;
 
   return (
     <div
-      className="rounded-lg border px-4 py-3"
+      className="overflow-hidden rounded-lg border"
       style={{
         background: "var(--bg-elevated)",
-        borderColor: "var(--border)",
+        borderColor: expanded ? "#3b82f6" : "var(--border)",
       }}
     >
-      {/* Customer name + status */}
-      <div className="flex items-center justify-between">
-        <Link
-          href={`/tech/job/${job.id}`}
-          className="min-w-0 truncate text-sm font-medium hover:underline"
-          style={{ color: "var(--t2)" }}
-        >
-          {job.customers?.display_name || "\u2014"}
-        </Link>
-        <span
-          className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
-          style={{ background: statusInfo.bg, color: statusInfo.text }}
-        >
-          {statusInfo.label}
-        </span>
-      </div>
-      {/* Phone number */}
-      <div className="mt-0.5">
-        {job.customer_phone ? (
-          <a
-            href={`tel:${job.customer_phone}`}
-            className="text-xs font-medium hover:underline"
+      {/* Collapsed header */}
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium" style={{ color: "var(--t2)" }}>
+            {customerName}
+          </p>
+          <p className="truncate text-xs" style={{ color: "var(--t3)" }}>
+            {job.service_types?.name ?? "Service"}
+            {job.actual_duration_minutes ? ` \u00b7 ${job.actual_duration_minutes} min` : ""}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className="rounded-full px-2.5 py-0.5 text-xs font-medium"
+            style={{ background: statusInfo.bg, color: statusInfo.text }}
+          >
+            {statusInfo.label}
+          </span>
+          <svg
+            className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+            style={{ color: "var(--t3)" }}
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </div>
+      </button>
+
+      {/* Expanded details */}
+      {expanded && (
+        <div className="space-y-2.5 border-t px-4 pb-3 pt-2.5" style={{ borderColor: "var(--border)" }}>
+          {/* Phone */}
+          <div className="flex items-center gap-2">
+            <svg className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" /></svg>
+            {phone ? (
+              <a href={`tel:${phone}`} className="text-sm font-medium hover:underline" style={{ color: "#3b82f6" }}>{phone}</a>
+            ) : (
+              <span className="text-sm" style={{ color: "var(--t3)" }}>{"\u2014"}</span>
+            )}
+          </div>
+          {/* Address + directions */}
+          <div className="flex items-start gap-2">
+            <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm" style={{ color: "var(--t1)" }}>{address || "\u2014"}</p>
+              {address && (
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium hover:shadow-sm"
+                  style={{ color: "#3b82f6", borderColor: "#3b82f6", background: "rgba(59,130,246,0.05)" }}
+                >
+                  Get Directions
+                </a>
+              )}
+            </div>
+          </div>
+          {/* Summary */}
+          <div className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+            <p className="text-xs leading-relaxed" style={{ color: "var(--t1)" }}>{summary}</p>
+          </div>
+          {/* Link to full detail */}
+          <Link
+            href={`/tech/job/${job.id}`}
+            className="block text-center text-xs font-medium hover:underline"
             style={{ color: "#3b82f6" }}
           >
-            {job.customer_phone}
-          </a>
-        ) : (
-          <span className="text-xs" style={{ color: "var(--t3)" }}>{"\u2014"}</span>
-        )}
-      </div>
-      <p className="mt-0.5 text-xs" style={{ color: "var(--t3)" }}>
-        {job.service_types?.name ?? "Service"}
-        {job.actual_duration_minutes
-          ? ` \u00b7 ${job.actual_duration_minutes} min`
-          : ""}
-      </p>
-      {/* Address + directions link */}
-      <div className="mt-0.5">
-        {job.address_text ? (
-          <a
-            href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address_text)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 truncate text-xs hover:underline"
-            style={{ color: "#3b82f6" }}
-          >
-            <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
-            {job.address_text}
-          </a>
-        ) : (
-          <span className="text-xs" style={{ color: "var(--t3)" }}>{"\u2014"}</span>
-        )}
-      </div>
-      {/* Job summary */}
-      <p className="mt-1.5 rounded-lg border px-3 py-2 text-xs leading-relaxed" style={{ color: "var(--t2)", borderColor: "var(--border)", background: "var(--bg)" }}>
-        {job.job_summary || job.service_types?.name || "\u2014"}
-      </p>
+            View Full Details
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
