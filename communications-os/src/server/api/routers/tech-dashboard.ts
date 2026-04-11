@@ -27,13 +27,10 @@ export const techDashboardRouter = createTRPCRouter({
               id: true,
               display_name: true,
               customer_contacts: {
-                where: { contact_type: "phone" },
-                select: { contact_value: true },
-                take: 1,
+                select: { contact_type: true, contact_value: true },
               },
               conversations: {
-                where: { primary_state: "booked" },
-                select: { cached_summary: true },
+                select: { cached_summary: true, contact_handle: true },
                 orderBy: { updated_at: "desc" },
                 take: 1,
               },
@@ -56,15 +53,21 @@ export const techDashboardRouter = createTRPCRouter({
         orderBy: { queue_position: "asc" },
       });
 
-      // Flatten: phone from contacts, summary from appointment conversation or customer's latest booked conversation
-      return jobs.map((j) => ({
-        ...j,
-        customer_phone: j.customers?.customer_contacts?.[0]?.contact_value ?? null,
-        job_summary:
-          j.appointments?.conversations?.cached_summary
-          ?? j.customers?.conversations?.[0]?.cached_summary
-          ?? null,
-      }));
+      return jobs.map((j) => {
+        const contacts = j.customers?.customer_contacts ?? [];
+        const phoneContact = contacts.find((c) => c.contact_type === "phone")
+          ?? contacts[0]; // fall back to any contact
+        const convPhone = j.customers?.conversations?.[0]?.contact_handle ?? null;
+
+        return {
+          ...j,
+          customer_phone: phoneContact?.contact_value ?? convPhone ?? null,
+          job_summary:
+            j.appointments?.conversations?.cached_summary
+            ?? j.customers?.conversations?.[0]?.cached_summary
+            ?? null,
+        };
+      });
     }),
 
   /** Update job status (en route, arrived, in progress, completed, etc.) */
@@ -146,13 +149,10 @@ export const techDashboardRouter = createTRPCRouter({
               id: true,
               display_name: true,
               customer_contacts: {
-                where: { contact_type: "phone" },
-                select: { contact_value: true },
-                take: 1,
+                select: { contact_type: true, contact_value: true },
               },
               conversations: {
-                where: { primary_state: "booked" },
-                select: { cached_summary: true },
+                select: { cached_summary: true, contact_handle: true },
                 orderBy: { updated_at: "desc" },
                 take: 1,
               },
@@ -181,9 +181,14 @@ export const techDashboardRouter = createTRPCRouter({
         });
       }
 
+      const contacts = job.customers?.customer_contacts ?? [];
+      const phoneContact = contacts.find((c) => c.contact_type === "phone")
+        ?? contacts[0];
+      const convPhone = job.customers?.conversations?.[0]?.contact_handle ?? null;
+
       return {
         ...job,
-        customer_phone: job.customers?.customer_contacts?.[0]?.contact_value ?? null,
+        customer_phone: phoneContact?.contact_value ?? convPhone ?? null,
         job_summary:
           job.appointments?.conversations?.cached_summary
           ?? job.customers?.conversations?.[0]?.cached_summary
@@ -211,13 +216,10 @@ export const techDashboardRouter = createTRPCRouter({
             id: true,
             display_name: true,
             customer_contacts: {
-              where: { contact_type: "phone" },
-              select: { contact_value: true },
-              take: 1,
+              select: { contact_type: true, contact_value: true },
             },
             conversations: {
-              where: { primary_state: "booked" },
-              select: { cached_summary: true },
+              select: { cached_summary: true, contact_handle: true },
               orderBy: { updated_at: "desc" },
               take: 1,
             },
@@ -235,14 +237,21 @@ export const techDashboardRouter = createTRPCRouter({
       orderBy: [{ scheduled_date: "asc" }, { queue_position: "asc" }],
     });
 
-    return jobs.map((j) => ({
-      ...j,
-      customer_phone: j.customers?.customer_contacts?.[0]?.contact_value ?? null,
-      job_summary:
-        j.appointments?.conversations?.cached_summary
-        ?? j.customers?.conversations?.[0]?.cached_summary
-        ?? null,
-    }));
+    return jobs.map((j) => {
+      const contacts = j.customers?.customer_contacts ?? [];
+      const phoneContact = contacts.find((c) => c.contact_type === "phone")
+        ?? contacts[0];
+      const convPhone = j.customers?.conversations?.[0]?.contact_handle ?? null;
+
+      return {
+        ...j,
+        customer_phone: phoneContact?.contact_value ?? convPhone ?? null,
+        job_summary:
+          j.appointments?.conversations?.cached_summary
+          ?? j.customers?.conversations?.[0]?.cached_summary
+          ?? null,
+      };
+    });
   }),
 
   /** Get completed job history (paginated) */
@@ -269,13 +278,10 @@ export const techDashboardRouter = createTRPCRouter({
                 id: true,
                 display_name: true,
                 customer_contacts: {
-                  where: { contact_type: "phone" },
-                  select: { contact_value: true },
-                  take: 1,
+                  select: { contact_type: true, contact_value: true },
                 },
                 conversations: {
-                  where: { primary_state: "booked" },
-                  select: { cached_summary: true },
+                  select: { cached_summary: true, contact_handle: true },
                   orderBy: { updated_at: "desc" },
                   take: 1,
                 },
@@ -303,14 +309,21 @@ export const techDashboardRouter = createTRPCRouter({
       ]);
 
       const hasMore = jobs.length > take;
-      const items = (hasMore ? jobs.slice(0, take) : jobs).map((j) => ({
-        ...j,
-        customer_phone: j.customers?.customer_contacts?.[0]?.contact_value ?? null,
-        job_summary:
-          j.appointments?.conversations?.cached_summary
-          ?? j.customers?.conversations?.[0]?.cached_summary
-          ?? null,
-      }));
+      const items = (hasMore ? jobs.slice(0, take) : jobs).map((j) => {
+        const contacts = j.customers?.customer_contacts ?? [];
+        const phoneContact = contacts.find((c) => c.contact_type === "phone")
+          ?? contacts[0];
+        const convPhone = j.customers?.conversations?.[0]?.contact_handle ?? null;
+
+        return {
+          ...j,
+          customer_phone: phoneContact?.contact_value ?? convPhone ?? null,
+          job_summary:
+            j.appointments?.conversations?.cached_summary
+            ?? j.customers?.conversations?.[0]?.cached_summary
+            ?? null,
+        };
+      });
 
       return { items, total, hasMore, nextCursor: skip + take };
     }),
@@ -385,13 +398,10 @@ export const techDashboardRouter = createTRPCRouter({
             id: true,
             display_name: true,
             customer_contacts: {
-              where: { contact_type: "phone" },
-              select: { contact_value: true },
-              take: 1,
+              select: { contact_type: true, contact_value: true },
             },
             conversations: {
-              where: { primary_state: "booked" },
-              select: { cached_summary: true },
+              select: { cached_summary: true, contact_handle: true },
               orderBy: { updated_at: "desc" },
               take: 1,
             },
@@ -410,14 +420,21 @@ export const techDashboardRouter = createTRPCRouter({
       take: 50,
     });
 
-    return jobs.map((j) => ({
-      ...j,
-      customer_phone: j.customers?.customer_contacts?.[0]?.contact_value ?? null,
-      job_summary:
-        j.appointments?.conversations?.cached_summary
-        ?? j.customers?.conversations?.[0]?.cached_summary
-        ?? null,
-    }));
+    return jobs.map((j) => {
+      const contacts = j.customers?.customer_contacts ?? [];
+      const phoneContact = contacts.find((c) => c.contact_type === "phone")
+        ?? contacts[0];
+      const convPhone = j.customers?.conversations?.[0]?.contact_handle ?? null;
+
+      return {
+        ...j,
+        customer_phone: phoneContact?.contact_value ?? convPhone ?? null,
+        job_summary:
+          j.appointments?.conversations?.cached_summary
+          ?? j.customers?.conversations?.[0]?.cached_summary
+          ?? null,
+      };
+    });
   }),
 
   /** Get technician's own profile info (full details for settings) */
