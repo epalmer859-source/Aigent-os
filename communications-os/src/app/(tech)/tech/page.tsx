@@ -607,14 +607,40 @@ function JobCard({
               {job.customers?.display_name ?? "Customer"}
             </Link>
           </div>
+          {/* Customer phone */}
+          {job.customer_phone && (
+            <div className="ml-8 mt-1">
+              <a
+                href={`tel:${job.customer_phone}`}
+                className="text-xs font-medium hover:underline"
+                style={{ color: "#3b82f6" }}
+              >
+                {job.customer_phone}
+              </a>
+            </div>
+          )}
           <p className="ml-8 mt-0.5 text-xs" style={{ color: "var(--t3)" }}>
             {job.service_types?.name ?? "Service"} &middot;{" "}
             {job.estimated_duration_minutes} min &middot;{" "}
             {job.drive_time_minutes} min drive
           </p>
-          <p className="ml-8 mt-0.5 truncate text-xs" style={{ color: "var(--t3)" }}>
+          {/* Address with Maps link */}
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.address_text)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-8 mt-0.5 flex items-center gap-1 truncate text-xs hover:underline"
+            style={{ color: "#3b82f6" }}
+          >
+            <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
             {job.address_text}
-          </p>
+          </a>
+          {/* Job summary from chat logs */}
+          {job.job_summary && (
+            <p className="ml-8 mt-1.5 rounded-lg border px-3 py-2 text-xs leading-relaxed" style={{ color: "var(--t2)", borderColor: "var(--border)", background: "var(--bg)" }}>
+              {job.job_summary}
+            </p>
+          )}
         </div>
         <span
           className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
@@ -646,32 +672,61 @@ function CompactJobRow({ job }: { job: any }) {
   const statusInfo = STATUS_COLORS[job.status as string] ?? STATUS_COLORS.COMPLETED!;
 
   return (
-    <Link
-      href={`/tech/job/${job.id}`}
-      className="flex items-center justify-between rounded-lg border px-4 py-3 transition hover:shadow-sm"
+    <div
+      className="rounded-lg border px-4 py-3"
       style={{
         background: "var(--bg-elevated)",
         borderColor: "var(--border)",
       }}
     >
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium" style={{ color: "var(--t2)" }}>
+      <div className="flex items-center justify-between">
+        <Link
+          href={`/tech/job/${job.id}`}
+          className="min-w-0 truncate text-sm font-medium hover:underline"
+          style={{ color: "var(--t2)" }}
+        >
           {job.customers?.display_name ?? "Customer"}
-        </p>
-        <p className="text-xs" style={{ color: "var(--t3)" }}>
-          {job.service_types?.name ?? "Service"}
-          {job.actual_duration_minutes
-            ? ` \u00b7 ${job.actual_duration_minutes} min`
-            : ""}
-        </p>
+        </Link>
+        <span
+          className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
+          style={{ background: statusInfo.bg, color: statusInfo.text }}
+        >
+          {statusInfo.label}
+        </span>
       </div>
-      <span
-        className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
-        style={{ background: statusInfo.bg, color: statusInfo.text }}
-      >
-        {statusInfo.label}
-      </span>
-    </Link>
+      {job.customer_phone && (
+        <a
+          href={`tel:${job.customer_phone}`}
+          className="mt-0.5 block text-xs font-medium hover:underline"
+          style={{ color: "#3b82f6" }}
+        >
+          {job.customer_phone}
+        </a>
+      )}
+      <p className="mt-0.5 text-xs" style={{ color: "var(--t3)" }}>
+        {job.service_types?.name ?? "Service"}
+        {job.actual_duration_minutes
+          ? ` \u00b7 ${job.actual_duration_minutes} min`
+          : ""}
+      </p>
+      {job.address_text && (
+        <a
+          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.address_text)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-0.5 flex items-center gap-1 truncate text-xs hover:underline"
+          style={{ color: "#3b82f6" }}
+        >
+          <svg className="h-3 w-3 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+          {job.address_text}
+        </a>
+      )}
+      {job.job_summary && (
+        <p className="mt-1.5 rounded-lg border px-3 py-2 text-xs leading-relaxed" style={{ color: "var(--t2)", borderColor: "var(--border)", background: "var(--bg)" }}>
+          {job.job_summary}
+        </p>
+      )}
+    </div>
   );
 }
 

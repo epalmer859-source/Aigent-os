@@ -26,6 +26,11 @@ export const techDashboardRouter = createTRPCRouter({
             select: {
               id: true,
               display_name: true,
+              customer_contacts: {
+                where: { contact_type: "phone", is_primary: true },
+                select: { contact_value: true },
+                take: 1,
+              },
             },
           },
           service_types: {
@@ -34,11 +39,23 @@ export const techDashboardRouter = createTRPCRouter({
               name: true,
             },
           },
+          appointments: {
+            select: {
+              conversations: {
+                select: { cached_summary: true },
+              },
+            },
+          },
         },
         orderBy: { queue_position: "asc" },
       });
 
-      return jobs;
+      // Flatten customer phone and conversation summary onto each job
+      return jobs.map((j) => ({
+        ...j,
+        customer_phone: j.customers?.customer_contacts?.[0]?.contact_value ?? null,
+        job_summary: j.appointments?.conversations?.cached_summary ?? null,
+      }));
     }),
 
   /** Update job status (en route, arrived, in progress, completed, etc.) */
@@ -119,12 +136,24 @@ export const techDashboardRouter = createTRPCRouter({
             select: {
               id: true,
               display_name: true,
+              customer_contacts: {
+                where: { contact_type: "phone", is_primary: true },
+                select: { contact_value: true },
+                take: 1,
+              },
             },
           },
           service_types: {
             select: {
               id: true,
               name: true,
+            },
+          },
+          appointments: {
+            select: {
+              conversations: {
+                select: { cached_summary: true },
+              },
             },
           },
         },
@@ -137,7 +166,11 @@ export const techDashboardRouter = createTRPCRouter({
         });
       }
 
-      return job;
+      return {
+        ...job,
+        customer_phone: job.customers?.customer_contacts?.[0]?.contact_value ?? null,
+        job_summary: job.appointments?.conversations?.cached_summary ?? null,
+      };
     }),
 
   /** Get upcoming jobs (future dates) */
@@ -155,13 +188,34 @@ export const techDashboardRouter = createTRPCRouter({
         status: { notIn: ["CANCELED"] },
       },
       include: {
-        customers: { select: { id: true, display_name: true } },
+        customers: {
+          select: {
+            id: true,
+            display_name: true,
+            customer_contacts: {
+              where: { contact_type: "phone", is_primary: true },
+              select: { contact_value: true },
+              take: 1,
+            },
+          },
+        },
         service_types: { select: { id: true, name: true } },
+        appointments: {
+          select: {
+            conversations: {
+              select: { cached_summary: true },
+            },
+          },
+        },
       },
       orderBy: [{ scheduled_date: "asc" }, { queue_position: "asc" }],
     });
 
-    return jobs;
+    return jobs.map((j) => ({
+      ...j,
+      customer_phone: j.customers?.customer_contacts?.[0]?.contact_value ?? null,
+      job_summary: j.appointments?.conversations?.cached_summary ?? null,
+    }));
   }),
 
   /** Get completed job history (paginated) */
