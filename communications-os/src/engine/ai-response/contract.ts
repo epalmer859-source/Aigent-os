@@ -94,6 +94,8 @@ export interface GenerateResponseResult {
   success: boolean;
   /** The validated AIDecision, present on success. */
   decision?: AIDecision;
+  /** The actual reply text sent to the customer, always present even on failure. */
+  replyText?: string;
   /** ID of the outbound message_log record created. */
   messageLogId?: string;
   /** ID of the outbound_queue row created. */

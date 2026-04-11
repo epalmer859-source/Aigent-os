@@ -686,7 +686,7 @@ async function _handleInboundMessageFromDb(
         aiResponseQueued,
         stateChanged,
         newState,
-        aiReplyText: aiResult.decision?.responseText ?? aiResult.decision?.response_text ?? FALLBACK_RESPONSE,
+        aiReplyText: aiResult.replyText ?? aiResult.decision?.responseText ?? aiResult.decision?.response_text ?? FALLBACK_RESPONSE,
         showAddressForm: aiResult.decision?.show_address_form === true,
       };
     } else {

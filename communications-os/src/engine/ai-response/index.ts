@@ -332,6 +332,7 @@ export async function generateAIResponse(
       success: false,
       stateChanged: false,
       handoffCreated: false,
+      replyText: FALLBACK_RESPONSE,
       messageLogId: msgId,
       queueRowId: queueId,
       error: lastError,
@@ -490,6 +491,7 @@ export async function generateAIResponse(
   return {
     success: true,
     decision: effectiveDecision,
+    replyText: responseText,
     messageLogId: msgId,
     queueRowId: queueId,
     stateChanged,
@@ -569,17 +571,23 @@ async function _generateAIResponseFromDb(
   if (decision === null) {
     console.error("[ai-response] entering fallback path, lastError:", lastError);
 
-    // Detect fallback loop: if the last assistant message was already a fallback,
-    // send a recovery message instead to break the cycle.
-    const recentMessages = conversationHistory.slice(-4);
-    const lastAssistantMsg = [...recentMessages].reverse().find((m) => m.role === "assistant");
-    const isInFallbackLoop = lastAssistantMsg?.content === FALLBACK_RESPONSE;
-    const fallbackText = isInFallbackLoop
-      ? "I'm sorry for the trouble — let me connect you with our team directly. Someone will reach out to you shortly!"
-      : FALLBACK_RESPONSE;
+    // Detect fallback loop: check if ANY recent assistant message was a fallback/recovery.
+    // This catches alternating patterns (fallback → recovery → fallback → ...).
+    const recentMessages = conversationHistory.slice(-6);
+    const recentAssistantMsgs = recentMessages.filter((m) => m.role === "assistant");
+    const fallbackCount = recentAssistantMsgs.filter((m) =>
+      m.content === FALLBACK_RESPONSE ||
+      m.content.includes("let me connect you with our team") ||
+      m.content.includes("Our team has been notified")
+    ).length;
+    const isInFallbackLoop = fallbackCount >= 1;
 
+    let fallbackText: string;
     if (isInFallbackLoop) {
-      console.error("[ai-response] FALLBACK LOOP DETECTED — sending recovery message and creating escalation");
+      console.error("[ai-response] FALLBACK LOOP DETECTED — fallbackCount:", fallbackCount, "in last", recentAssistantMsgs.length, "assistant messages");
+      fallbackText = "I'm sorry for the trouble — let me connect you with our team directly. Someone will reach out to you shortly!";
+    } else {
+      fallbackText = FALLBACK_RESPONSE;
     }
 
     const { msgId, queueId } = await db.$transaction(async (tx) => {
@@ -596,7 +604,7 @@ async function _generateAIResponseFromDb(
       } catch { /* escalation creation is non-critical */ }
     }
 
-    return { success: false, stateChanged: false, handoffCreated: false, messageLogId: msgId, queueRowId: queueId, error: lastError };
+    return { success: false, stateChanged: false, handoffCreated: false, replyText: fallbackText, messageLogId: msgId, queueRowId: queueId, error: lastError };
   }
 
   // Apply rule_flag overrides.
@@ -820,15 +828,52 @@ async function _generateAIResponseFromDb(
           },
         };
 
-        console.log("[ai-response] STEP 1 — calling generateAvailableSlots...");
-        const slotResult = await generateAvailableSlots({
+        // Send a holding message so the customer sees something while we compute slots.
+        // This is stored in message_log so it shows in conversation history.
+        console.log("[ai-response] STEP 1 — sending holding message before slot computation");
+        try {
+          await db.message_log.create({
+            data: {
+              business_id: businessId,
+              conversation_id: conversationId,
+              direction: "outbound",
+              channel: "sms",
+              sender_type: "ai",
+              content: "Let me check what's available for you...",
+            },
+          });
+        } catch (holdingErr) {
+          console.warn("[ai-response] STEP 1 — holding message failed (non-critical):", holdingErr);
+        }
+
+        // Run slot generation with a 15-second timeout
+        console.log("[ai-response] STEP 1 — calling generateAvailableSlots (15s timeout)...");
+        const SLOT_TIMEOUT_MS = 15000;
+        const slotPromise = generateAvailableSlots({
           businessId,
           serviceDescription,
           availabilityPreference: availabilityPref,
         }, slotDeps);
+        const slotTimeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Slot generation timed out after ${SLOT_TIMEOUT_MS}ms`)), SLOT_TIMEOUT_MS)
+        );
+
+        let slotResult: Awaited<ReturnType<typeof generateAvailableSlots>>;
+        try {
+          slotResult = await Promise.race([slotPromise, slotTimeout]);
+        } catch (timeoutErr) {
+          const tMsg = timeoutErr instanceof Error ? timeoutErr.message : String(timeoutErr);
+          console.error("[ai-response] STEP 1 — SLOT GENERATION TIMED OUT:", tMsg);
+          bookingResponseOverride = "I'm having trouble checking our schedule right now — let me have someone from the team reach out to you directly to get your appointment set up.";
+          effectiveDecision.proposed_state_change = null;
+          effectiveDecision.handoff_required = true;
+          effectiveDecision.handoff_reason = `Slot generation timeout: ${tMsg}`;
+          // Skip the rest of Step 1
+          slotResult = { success: false, reason: tMsg };
+        }
         console.log("[ai-response] STEP 1 — generateAvailableSlots returned:", slotResult.success ? `${(slotResult as { slots: unknown[] }).slots.length} slots` : `failed: ${(slotResult as { reason: string }).reason}`);
 
-        if (slotResult.success) {
+        if (slotResult.success && !bookingResponseOverride) {
           // Store slots on conversation for step 2
           await db.conversations.update({
             where: { id: conversationId },
@@ -842,10 +887,10 @@ async function _generateAIResponseFromDb(
           // Force state to stay in booking_in_progress — do NOT transition to booked yet
           effectiveDecision.proposed_state_change = null;
           console.log("[ai-response] STEP 1 — presented", slotResult.slots.length, "slots");
-        } else {
+        } else if (!bookingResponseOverride) {
           bookingResponseOverride = `I wasn't able to find available time slots right now. Our team will follow up with you shortly to get your appointment scheduled.`;
           effectiveDecision.proposed_state_change = null;
-          console.warn("[ai-response] STEP 1 — no slots:", slotResult.reason);
+          console.warn("[ai-response] STEP 1 — no slots:", (slotResult as { reason: string }).reason);
         }
       }
       console.log("[ai-response] booking pipeline completed in", Date.now() - bookingStartTime, "ms");
@@ -959,7 +1004,7 @@ async function _generateAIResponseFromDb(
   _outboundMessages.set(msgId, { id: msgId, conversationId, businessId, direction: "outbound", senderType: "ai", content: responseText, messagePurpose, createdAt: new Date() });
   _queueRows.set(queueId, { id: queueId, conversationId, messagePurpose, createdAt: new Date() });
 
-  return { success: true, decision: effectiveDecision, messageLogId: msgId, queueRowId: queueId, stateChanged, newState, handoffCreated };
+  return { success: true, decision: effectiveDecision, replyText: responseText, messageLogId: msgId, queueRowId: queueId, stateChanged, newState, handoffCreated };
 }
 
 export async function regenerateSummary(conversationId: string): Promise<boolean> {
