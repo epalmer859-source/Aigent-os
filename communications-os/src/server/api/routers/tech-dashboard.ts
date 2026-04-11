@@ -140,6 +140,143 @@ export const techDashboardRouter = createTRPCRouter({
       return job;
     }),
 
+  /** Get upcoming jobs (future dates) */
+  upcomingJobs: technicianProcedure.query(async ({ ctx }) => {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    // Get next 14 days of jobs
+    const futureDate = new Date(today);
+    futureDate.setDate(futureDate.getDate() + 14);
+
+    const jobs = await ctx.db.scheduling_jobs.findMany({
+      where: {
+        technician_id: ctx.technicianId,
+        scheduled_date: { gt: today, lte: futureDate },
+        status: { notIn: ["CANCELED"] },
+      },
+      include: {
+        customers: { select: { id: true, display_name: true } },
+        service_types: { select: { id: true, name: true } },
+      },
+      orderBy: [{ scheduled_date: "asc" }, { queue_position: "asc" }],
+    });
+
+    return jobs;
+  }),
+
+  /** Get completed job history (paginated) */
+  completedHistory: technicianProcedure
+    .input(
+      z.object({
+        cursor: z.number().int().min(0).default(0),
+        limit: z.number().int().min(1).max(50).default(10),
+      }).optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const skip = input?.cursor ?? 0;
+      const take = input?.limit ?? 10;
+
+      const [jobs, total] = await Promise.all([
+        ctx.db.scheduling_jobs.findMany({
+          where: {
+            technician_id: ctx.technicianId,
+            status: { in: ["COMPLETED", "INCOMPLETE"] },
+          },
+          include: {
+            customers: { select: { id: true, display_name: true } },
+            service_types: { select: { id: true, name: true } },
+          },
+          orderBy: { completed_at: "desc" },
+          skip,
+          take: take + 1, // fetch one extra to detect hasMore
+        }),
+        ctx.db.scheduling_jobs.count({
+          where: {
+            technician_id: ctx.technicianId,
+            status: { in: ["COMPLETED", "INCOMPLETE"] },
+          },
+        }),
+      ]);
+
+      const hasMore = jobs.length > take;
+      const items = hasMore ? jobs.slice(0, take) : jobs;
+
+      return { items, total, hasMore, nextCursor: skip + take };
+    }),
+
+  /** Get completion stats */
+  completionStats: technicianProcedure.query(async ({ ctx }) => {
+    // All-time completed count
+    const totalCompleted = await ctx.db.scheduling_jobs.count({
+      where: {
+        technician_id: ctx.technicianId,
+        status: "COMPLETED",
+      },
+    });
+
+    // This week completed
+    const weekStart = new Date();
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const day = weekStart.getUTCDay();
+    weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1)); // Monday
+
+    const thisWeekCompleted = await ctx.db.scheduling_jobs.count({
+      where: {
+        technician_id: ctx.technicianId,
+        status: "COMPLETED",
+        completed_at: { gte: weekStart },
+      },
+    });
+
+    // Average duration from jobs with actual_duration_minutes
+    const durationAgg = await ctx.db.scheduling_jobs.aggregate({
+      where: {
+        technician_id: ctx.technicianId,
+        status: "COMPLETED",
+        actual_duration_minutes: { not: null },
+      },
+      _avg: { actual_duration_minutes: true },
+    });
+
+    // Average jobs per day (completed jobs / distinct days with completions)
+    const distinctDays = await ctx.db.scheduling_jobs.findMany({
+      where: {
+        technician_id: ctx.technicianId,
+        status: "COMPLETED",
+      },
+      select: { scheduled_date: true },
+      distinct: ["scheduled_date"],
+    });
+
+    const avgPerDay =
+      distinctDays.length > 0
+        ? Math.round((totalCompleted / distinctDays.length) * 10) / 10
+        : 0;
+
+    return {
+      totalCompleted,
+      thisWeekCompleted,
+      avgDurationMinutes: Math.round(durationAgg._avg.actual_duration_minutes ?? 0),
+      avgJobsPerDay: avgPerDay,
+    };
+  }),
+
+  /** Get cancelled/no-show jobs */
+  cancelledJobs: technicianProcedure.query(async ({ ctx }) => {
+    return ctx.db.scheduling_jobs.findMany({
+      where: {
+        technician_id: ctx.technicianId,
+        status: "CANCELED",
+      },
+      include: {
+        customers: { select: { id: true, display_name: true } },
+        service_types: { select: { id: true, name: true } },
+      },
+      orderBy: { updated_at: "desc" },
+      take: 50,
+    });
+  }),
+
   /** Get technician's own profile info (full details for settings) */
   myProfile: technicianProcedure.query(async ({ ctx }) => {
     const tech = await ctx.db.technicians.findUnique({

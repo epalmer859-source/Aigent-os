@@ -4,6 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { api } from "~/trpc/react";
 
+// ── Shared constants ───────────────────────────────────────────
+
+type Tab = "today" | "upcoming" | "history" | "cancelled";
+
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
   NOT_STARTED:  { bg: "#f3f4f6", text: "#374151", label: "Not Started" },
   EN_ROUTE:     { bg: "#dbeafe", text: "#1d4ed8", label: "En Route" },
@@ -29,7 +33,56 @@ const ACTION_LABELS: Record<string, string> = {
   COMPLETED: "Complete Job",
 };
 
+// ── Main Page ──────────────────────────────────────────────────
+
 export default function TechQueuePage() {
+  const [activeTab, setActiveTab] = useState<Tab>("today");
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: "today", label: "Today" },
+    { key: "upcoming", label: "Upcoming" },
+    { key: "history", label: "History" },
+    { key: "cancelled", label: "Cancelled" },
+  ];
+
+  return (
+    <div className="mx-auto max-w-2xl">
+      <h1 className="mb-4 text-2xl font-bold" style={{ color: "var(--t1)" }}>
+        My Jobs
+      </h1>
+
+      {/* Tab bar */}
+      <div
+        className="mb-6 flex gap-1 rounded-lg p-1"
+        style={{ background: "var(--bg-hover)" }}
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className="flex-1 rounded-md px-3 py-2 text-sm font-medium transition"
+            style={{
+              background: activeTab === tab.key ? "var(--bg-elevated)" : "transparent",
+              color: activeTab === tab.key ? "var(--t1)" : "var(--t3)",
+              boxShadow: activeTab === tab.key ? "0 1px 2px rgba(0,0,0,0.05)" : "none",
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "today" && <TodayTab />}
+      {activeTab === "upcoming" && <UpcomingTab />}
+      {activeTab === "history" && <HistoryTab />}
+      {activeTab === "cancelled" && <CancelledTab />}
+    </div>
+  );
+}
+
+// ── Today Tab ──────────────────────────────────────────────────
+
+function TodayTab() {
   const [dateStr, setDateStr] = useState(
     () => new Date().toISOString().slice(0, 10),
   );
@@ -56,20 +109,26 @@ export default function TechQueuePage() {
     (j) => j.status === "COMPLETED" || j.status === "CANCELED",
   );
 
+  // Show "Start My Day" if it's today and the first job is NOT_STARTED
+  const showStartDay =
+    isToday &&
+    activeJobs &&
+    activeJobs.length > 0 &&
+    activeJobs[0]!.status === "NOT_STARTED";
+
   return (
-    <div className="mx-auto max-w-2xl">
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
+    <div>
+      {/* Date header */}
+      <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1
-            className="text-2xl font-bold"
-            style={{ color: "var(--t1)" }}
-          >
-            {isToday ? "Today's Jobs" : "Jobs"}
-          </h1>
-          <p className="text-sm" style={{ color: "var(--t3)" }}>
-            {displayDate}
+          <p className="text-lg font-semibold" style={{ color: "var(--t1)" }}>
+            {isToday ? "Today" : displayDate}
           </p>
+          {isToday && (
+            <p className="text-xs" style={{ color: "var(--t3)" }}>
+              {displayDate}
+            </p>
+          )}
         </div>
         <input
           type="date"
@@ -84,178 +143,591 @@ export default function TechQueuePage() {
         />
       </div>
 
-      {isLoading && (
-        <p className="text-sm" style={{ color: "var(--t3)" }}>
-          Loading jobs...
-        </p>
+      {/* Start My Day button */}
+      {showStartDay && (
+        <button
+          onClick={() =>
+            updateStatus.mutate({
+              jobId: activeJobs![0]!.id,
+              status: "EN_ROUTE",
+            })
+          }
+          disabled={updateStatus.isPending}
+          className="mb-4 w-full rounded-xl py-3 text-sm font-semibold text-white transition disabled:opacity-60"
+          style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)" }}
+        >
+          {updateStatus.isPending ? "Starting..." : "Start My Day"}
+        </button>
       )}
 
+      {isLoading && <LoadingState />}
+
       {jobs && jobs.length === 0 && (
-        <div
-          className="rounded-xl border p-8 text-center"
-          style={{
-            background: "var(--bg-elevated)",
-            borderColor: "var(--border)",
-          }}
-        >
-          <p className="text-lg font-medium" style={{ color: "var(--t2)" }}>
-            No jobs scheduled
-          </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--t3)" }}>
-            {isToday
+        <EmptyCard
+          title="No jobs scheduled"
+          message={
+            isToday
               ? "You have no jobs for today. Enjoy your break!"
-              : "No jobs scheduled for this day."}
-          </p>
-        </div>
+              : "No jobs scheduled for this day."
+          }
+        />
       )}
 
       {/* Active jobs */}
       {activeJobs && activeJobs.length > 0 && (
         <div className="space-y-3">
-          {activeJobs.map((job, idx) => {
-            const statusInfo =
-              STATUS_COLORS[job.status] ?? STATUS_COLORS.NOT_STARTED!;
-            const nextStatus = NEXT_STATUS[job.status];
-            const actionLabel = nextStatus
-              ? ACTION_LABELS[nextStatus]
-              : undefined;
-
-            return (
-              <div
-                key={job.id}
-                className="rounded-xl border p-4"
-                style={{
-                  background: "var(--bg-elevated)",
-                  borderColor: "var(--border)",
-                }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-                        style={{
-                          background: "var(--bg-hover)",
-                          color: "var(--t2)",
-                        }}
-                      >
-                        {idx + 1}
-                      </span>
-                      <Link
-                        href={`/tech/job/${job.id}`}
-                        className="truncate text-sm font-semibold hover:underline"
-                        style={{ color: "var(--t1)" }}
-                      >
-                        {job.customers?.display_name ?? "Customer"}
-                      </Link>
-                    </div>
-                    <p
-                      className="ml-8 mt-0.5 text-xs"
-                      style={{ color: "var(--t3)" }}
-                    >
-                      {job.service_types?.name ?? "Service"} &middot;{" "}
-                      {job.estimated_duration_minutes} min &middot;{" "}
-                      {job.drive_time_minutes} min drive
-                    </p>
-                    <p
-                      className="ml-8 mt-0.5 truncate text-xs"
-                      style={{ color: "var(--t3)" }}
-                    >
-                      {job.address_text}
-                    </p>
-                  </div>
-                  <span
-                    className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
-                    style={{
-                      background: statusInfo.bg,
-                      color: statusInfo.text,
-                    }}
-                  >
-                    {statusInfo.label}
-                  </span>
-                </div>
-
-                {/* Action button */}
-                {actionLabel && nextStatus && (
-                  <div className="ml-8 mt-3">
-                    <button
-                      onClick={() =>
-                        updateStatus.mutate({
-                          jobId: job.id,
-                          status: nextStatus as "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "COMPLETED",
-                        })
-                      }
-                      disabled={updateStatus.isPending}
-                      className="rounded-lg px-4 py-2 text-sm font-medium text-white transition disabled:opacity-60"
-                      style={{
-                        background:
-                          nextStatus === "COMPLETED"
-                            ? "#16a34a"
-                            : "#3b82f6",
-                      }}
-                    >
-                      {updateStatus.isPending ? "Updating..." : actionLabel}
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {activeJobs.map((job, idx) => (
+            <JobCard
+              key={job.id}
+              job={job}
+              position={idx + 1}
+              onStatusChange={(status) =>
+                updateStatus.mutate({ jobId: job.id, status })
+              }
+              isUpdating={updateStatus.isPending}
+            />
+          ))}
         </div>
       )}
 
-      {/* Completed jobs */}
+      {/* Today's completed */}
       {completedJobs && completedJobs.length > 0 && (
         <div className="mt-6">
-          <h2
-            className="mb-3 text-sm font-semibold uppercase tracking-wide"
-            style={{ color: "var(--t3)" }}
-          >
-            Completed ({completedJobs.length})
-          </h2>
+          <SectionHeader
+            title={`Completed (${completedJobs.length})`}
+          />
           <div className="space-y-2">
-            {completedJobs.map((job) => {
-              const statusInfo =
-                STATUS_COLORS[job.status] ?? STATUS_COLORS.COMPLETED!;
-              return (
-                <Link
-                  key={job.id}
-                  href={`/tech/job/${job.id}`}
-                  className="flex items-center justify-between rounded-lg border px-4 py-3 transition hover:shadow-sm"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    borderColor: "var(--border)",
-                  }}
-                >
-                  <div className="min-w-0">
-                    <p
-                      className="truncate text-sm font-medium"
-                      style={{ color: "var(--t2)" }}
-                    >
-                      {job.customers?.display_name ?? "Customer"}
-                    </p>
-                    <p className="text-xs" style={{ color: "var(--t3)" }}>
-                      {job.service_types?.name ?? "Service"}
-                      {job.actual_duration_minutes
-                        ? ` \u00b7 ${job.actual_duration_minutes} min`
-                        : ""}
-                    </p>
-                  </div>
-                  <span
-                    className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
-                    style={{
-                      background: statusInfo.bg,
-                      color: statusInfo.text,
-                    }}
-                  >
-                    {statusInfo.label}
-                  </span>
-                </Link>
-              );
-            })}
+            {completedJobs.map((job) => (
+              <CompactJobRow key={job.id} job={job} />
+            ))}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+// ── Upcoming Tab ───────────────────────────────────────────────
+
+function UpcomingTab() {
+  const { data: jobs, isLoading } = api.techDashboard.upcomingJobs.useQuery();
+
+  if (isLoading) return <LoadingState />;
+  if (!jobs || jobs.length === 0) {
+    return (
+      <EmptyCard
+        title="No upcoming jobs"
+        message="You don't have any jobs scheduled in the next two weeks."
+      />
+    );
+  }
+
+  // Group by date
+  const grouped = new Map<string, typeof jobs>();
+  for (const job of jobs) {
+    const dateKey =
+      job.scheduled_date instanceof Date
+        ? job.scheduled_date.toISOString().slice(0, 10)
+        : String(job.scheduled_date).slice(0, 10);
+    if (!grouped.has(dateKey)) grouped.set(dateKey, []);
+    grouped.get(dateKey)!.push(job);
+  }
+
+  return (
+    <div className="space-y-4">
+      {Array.from(grouped.entries()).map(([dateKey, dayJobs]) => (
+        <UpcomingDayGroup key={dateKey} dateStr={dateKey} jobs={dayJobs} />
+      ))}
+    </div>
+  );
+}
+
+function UpcomingDayGroup({
+  dateStr,
+  jobs,
+}: {
+  dateStr: string;
+  jobs: any[];
+}) {
+  const [open, setOpen] = useState(true);
+  const label = new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow = dateStr === tomorrow.toISOString().slice(0, 10);
+
+  return (
+    <div
+      className="rounded-xl border"
+      style={{
+        background: "var(--bg-elevated)",
+        borderColor: isTomorrow ? "#22c55e" : "var(--border)",
+        borderWidth: isTomorrow ? "2px" : "1px",
+      }}
+    >
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold" style={{ color: "var(--t1)" }}>
+            {label}
+          </span>
+          {isTomorrow && (
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">
+              TOMORROW
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs" style={{ color: "var(--t3)" }}>
+            {jobs.length} job{jobs.length !== 1 ? "s" : ""}
+          </span>
+          <span
+            className="text-xs transition-transform"
+            style={{
+              color: "var(--t3)",
+              transform: open ? "rotate(180deg)" : "rotate(0deg)",
+            }}
+          >
+            &#9660;
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div
+          className="space-y-2 px-4 pb-3"
+          style={{ borderTop: "1px solid var(--border)" }}
+        >
+          <div className="pt-2" />
+          {jobs.map((job, idx) => (
+            <div
+              key={job.id}
+              className="flex items-center justify-between rounded-lg px-3 py-2.5"
+              style={{ background: "var(--bg-hover)" }}
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold"
+                  style={{ background: "var(--bg)", color: "var(--t3)" }}
+                >
+                  {idx + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium" style={{ color: "var(--t1)" }}>
+                    {job.customers?.display_name ?? "Customer"}
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--t3)" }}>
+                    {job.service_types?.name ?? "Service"} &middot;{" "}
+                    {job.estimated_duration_minutes}min &middot;{" "}
+                    {job.drive_time_minutes}min drive
+                  </p>
+                  <p className="truncate text-xs" style={{ color: "var(--t3)" }}>
+                    {job.address_text}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── History Tab ────────────────────────────────────────────────
+
+function HistoryTab() {
+  const [cursor, setCursor] = useState(0);
+  const { data: stats } = api.techDashboard.completionStats.useQuery();
+  const { data, isLoading } = api.techDashboard.completedHistory.useQuery({
+    cursor,
+    limit: 10,
+  });
+
+  return (
+    <div>
+      {/* Stats cards */}
+      {stats && (
+        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatCard label="Total Completed" value={String(stats.totalCompleted)} />
+          <StatCard label="This Week" value={String(stats.thisWeekCompleted)} />
+          <StatCard
+            label="Avg Duration"
+            value={stats.avgDurationMinutes > 0 ? `${stats.avgDurationMinutes}m` : "—"}
+          />
+          <StatCard
+            label="Avg Jobs/Day"
+            value={stats.avgJobsPerDay > 0 ? String(stats.avgJobsPerDay) : "—"}
+          />
+        </div>
+      )}
+
+      {isLoading && <LoadingState />}
+
+      {data && data.items.length === 0 && cursor === 0 && (
+        <EmptyCard
+          title="No completed jobs yet"
+          message="Your completed jobs will show up here."
+        />
+      )}
+
+      {data && data.items.length > 0 && (
+        <>
+          <div className="space-y-2">
+            {data.items.map((job) => (
+              <HistoryRow key={job.id} job={job} />
+            ))}
+          </div>
+
+          {/* Pagination */}
+          <div className="mt-4 flex items-center justify-between">
+            <p className="text-xs" style={{ color: "var(--t3)" }}>
+              Showing {cursor + 1}–{Math.min(cursor + data.items.length, data.total)} of {data.total}
+            </p>
+            <div className="flex gap-2">
+              {cursor > 0 && (
+                <button
+                  onClick={() => setCursor(Math.max(0, cursor - 10))}
+                  className="rounded-lg border px-3 py-1.5 text-xs font-medium transition hover:shadow-sm"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    borderColor: "var(--border)",
+                    color: "var(--t2)",
+                  }}
+                >
+                  Previous
+                </button>
+              )}
+              {data.hasMore && (
+                <button
+                  onClick={() => setCursor(data.nextCursor)}
+                  className="rounded-lg border px-3 py-1.5 text-xs font-medium transition hover:shadow-sm"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    borderColor: "var(--border)",
+                    color: "var(--t2)",
+                  }}
+                >
+                  Load More
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function HistoryRow({ job }: { job: any }) {
+  const scheduledDate =
+    job.scheduled_date instanceof Date
+      ? job.scheduled_date
+      : new Date(job.scheduled_date);
+
+  const dateLabel = scheduledDate.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+
+  const arrivedTime = job.arrived_at
+    ? new Date(job.arrived_at).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+
+  const completedTime = job.completed_at
+    ? new Date(job.completed_at).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+
+  const statusInfo =
+    STATUS_COLORS[job.status as string] ?? STATUS_COLORS.COMPLETED!;
+
+  return (
+    <Link
+      href={`/tech/job/${job.id}`}
+      className="flex items-start gap-3 rounded-xl border px-4 py-3 transition hover:shadow-sm"
+      style={{
+        background: "var(--bg-elevated)",
+        borderColor: "var(--border)",
+      }}
+    >
+      {/* Date badge */}
+      <div
+        className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-lg text-center"
+        style={{ background: "var(--bg-hover)" }}
+      >
+        <span className="text-[10px] font-medium leading-tight" style={{ color: "var(--t3)" }}>
+          {scheduledDate.toLocaleDateString("en-US", { month: "short" })}
+        </span>
+        <span className="text-sm font-bold leading-tight" style={{ color: "var(--t1)" }}>
+          {scheduledDate.getDate()}
+        </span>
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between">
+          <p className="truncate text-sm font-medium" style={{ color: "var(--t1)" }}>
+            {job.customers?.display_name ?? "Customer"}
+          </p>
+          <span
+            className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
+            style={{ background: statusInfo.bg, color: statusInfo.text }}
+          >
+            {statusInfo.label}
+          </span>
+        </div>
+        <p className="text-xs" style={{ color: "var(--t3)" }}>
+          {job.service_types?.name ?? "Service"} &middot; {dateLabel}
+        </p>
+        <p className="truncate text-xs" style={{ color: "var(--t3)" }}>
+          {job.address_text}
+        </p>
+        <div className="mt-1 flex gap-3 text-xs" style={{ color: "var(--t3)" }}>
+          {arrivedTime && <span>Started {arrivedTime}</span>}
+          {completedTime && <span>Done {completedTime}</span>}
+          {job.actual_duration_minutes && (
+            <span>{job.actual_duration_minutes}min</span>
+          )}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+// ── Cancelled Tab ──────────────────────────────────────────────
+
+function CancelledTab() {
+  const { data: jobs, isLoading } = api.techDashboard.cancelledJobs.useQuery();
+
+  if (isLoading) return <LoadingState />;
+  if (!jobs || jobs.length === 0) {
+    return (
+      <EmptyCard
+        title="No cancelled jobs"
+        message="You don't have any cancelled jobs. Keep up the good work!"
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {jobs.map((job) => {
+        const date =
+          job.scheduled_date instanceof Date
+            ? job.scheduled_date
+            : new Date(job.scheduled_date);
+
+        return (
+          <div
+            key={job.id}
+            className="flex items-center justify-between rounded-xl border px-4 py-3"
+            style={{
+              background: "var(--bg-elevated)",
+              borderColor: "var(--border)",
+            }}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium" style={{ color: "var(--t2)" }}>
+                {job.customers?.display_name ?? "Customer"}
+              </p>
+              <p className="text-xs" style={{ color: "var(--t3)" }}>
+                {job.service_types?.name ?? "Service"} &middot;{" "}
+                {date.toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                })}
+              </p>
+              <p className="truncate text-xs" style={{ color: "var(--t3)" }}>
+                {job.address_text}
+              </p>
+            </div>
+            <span
+              className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
+              style={{ background: "#f3f4f6", color: "#6b7280" }}
+            >
+              Cancelled
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Shared Components ──────────────────────────────────────────
+
+function JobCard({
+  job,
+  position,
+  onStatusChange,
+  isUpdating,
+}: {
+  job: any;
+  position: number;
+  onStatusChange: (status: "NOT_STARTED" | "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "COMPLETED" | "INCOMPLETE" | "NEEDS_REBOOK") => void;
+  isUpdating: boolean;
+}) {
+  const statusInfo = STATUS_COLORS[job.status as string] ?? STATUS_COLORS.NOT_STARTED!;
+  const nextStatus = NEXT_STATUS[job.status as string];
+  const actionLabel = nextStatus ? ACTION_LABELS[nextStatus] : undefined;
+
+  return (
+    <div
+      className="rounded-xl border p-4"
+      style={{
+        background: "var(--bg-elevated)",
+        borderColor: "var(--border)",
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+              style={{ background: "var(--bg-hover)", color: "var(--t2)" }}
+            >
+              {position}
+            </span>
+            <Link
+              href={`/tech/job/${job.id}`}
+              className="truncate text-sm font-semibold hover:underline"
+              style={{ color: "var(--t1)" }}
+            >
+              {job.customers?.display_name ?? "Customer"}
+            </Link>
+          </div>
+          <p className="ml-8 mt-0.5 text-xs" style={{ color: "var(--t3)" }}>
+            {job.service_types?.name ?? "Service"} &middot;{" "}
+            {job.estimated_duration_minutes} min &middot;{" "}
+            {job.drive_time_minutes} min drive
+          </p>
+          <p className="ml-8 mt-0.5 truncate text-xs" style={{ color: "var(--t3)" }}>
+            {job.address_text}
+          </p>
+        </div>
+        <span
+          className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
+          style={{ background: statusInfo.bg, color: statusInfo.text }}
+        >
+          {statusInfo.label}
+        </span>
+      </div>
+
+      {actionLabel && nextStatus && (
+        <div className="ml-8 mt-3">
+          <button
+            onClick={() => onStatusChange(nextStatus as "NOT_STARTED" | "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "COMPLETED" | "INCOMPLETE" | "NEEDS_REBOOK")}
+            disabled={isUpdating}
+            className="rounded-lg px-4 py-2 text-sm font-medium text-white transition disabled:opacity-60"
+            style={{
+              background: nextStatus === "COMPLETED" ? "#16a34a" : "#3b82f6",
+            }}
+          >
+            {isUpdating ? "Updating..." : actionLabel}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CompactJobRow({ job }: { job: any }) {
+  const statusInfo = STATUS_COLORS[job.status as string] ?? STATUS_COLORS.COMPLETED!;
+
+  return (
+    <Link
+      href={`/tech/job/${job.id}`}
+      className="flex items-center justify-between rounded-lg border px-4 py-3 transition hover:shadow-sm"
+      style={{
+        background: "var(--bg-elevated)",
+        borderColor: "var(--border)",
+      }}
+    >
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium" style={{ color: "var(--t2)" }}>
+          {job.customers?.display_name ?? "Customer"}
+        </p>
+        <p className="text-xs" style={{ color: "var(--t3)" }}>
+          {job.service_types?.name ?? "Service"}
+          {job.actual_duration_minutes
+            ? ` \u00b7 ${job.actual_duration_minutes} min`
+            : ""}
+        </p>
+      </div>
+      <span
+        className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium"
+        style={{ background: statusInfo.bg, color: statusInfo.text }}
+      >
+        {statusInfo.label}
+      </span>
+    </Link>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      className="rounded-xl border p-3 text-center"
+      style={{
+        background: "var(--bg-elevated)",
+        borderColor: "var(--border)",
+      }}
+    >
+      <p className="text-xl font-bold" style={{ color: "var(--t1)" }}>
+        {value}
+      </p>
+      <p className="text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--t3)" }}>
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <h2
+      className="mb-3 text-sm font-semibold uppercase tracking-wide"
+      style={{ color: "var(--t3)" }}
+    >
+      {title}
+    </h2>
+  );
+}
+
+function EmptyCard({ title, message }: { title: string; message: string }) {
+  return (
+    <div
+      className="rounded-xl border p-8 text-center"
+      style={{
+        background: "var(--bg-elevated)",
+        borderColor: "var(--border)",
+      }}
+    >
+      <p className="text-lg font-medium" style={{ color: "var(--t2)" }}>
+        {title}
+      </p>
+      <p className="mt-1 text-sm" style={{ color: "var(--t3)" }}>
+        {message}
+      </p>
+    </div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <p className="py-8 text-center text-sm" style={{ color: "var(--t3)" }}>
+      Loading...
+    </p>
   );
 }
