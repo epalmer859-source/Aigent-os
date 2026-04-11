@@ -93,7 +93,7 @@ export const AI_DISCLOSURE_TEMPLATE =
  * Claude must return a JSON object matching the AIDecision schema.
  */
 export const RESPONSE_FORMAT_INSTRUCTION =
-  "Respond ONLY with a JSON object matching this schema. No markdown, no backticks, no preamble.";
+  "IMPORTANT: Your ENTIRE response must be a single valid JSON object matching this schema. Do not include ANY text outside the JSON — no explanations, no markdown, no backticks, no preamble, no recap. Just the raw JSON object starting with { and ending with }.";
 
 // ── Function signature ────────────────────────────────────────
 

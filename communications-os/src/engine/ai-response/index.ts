@@ -163,9 +163,30 @@ function _parseDecision(raw: string): AIDecision | null {
       try {
         return JSON.parse(text.slice(start, end + 1)) as AIDecision;
       } catch {
-        return null;
+        // JSON structure found but malformed — fall through to plain text recovery
       }
     }
+
+    // Third attempt: plain text recovery.
+    // Claude returned a natural language response instead of JSON.
+    // Synthesize a valid decision object so the customer still gets
+    // the AI's actual message instead of a generic fallback.
+    if (text.length > 5 && !text.startsWith("{")) {
+      console.warn("[ai-response] PLAIN TEXT RECOVERY — Claude returned text instead of JSON, synthesizing decision from:", text.slice(0, 150));
+      return {
+        response_text: text,
+        proposed_state_change: null,
+        handoff_required: false,
+        handoff_reason: null,
+        message_purpose: "general_reply",
+        requested_data_fields: [],
+        detected_intent: "general_inquiry",
+        confidence: 0.7,
+        rule_flags: [],
+        is_first_message: false,
+      };
+    }
+
     return null;
   }
 }

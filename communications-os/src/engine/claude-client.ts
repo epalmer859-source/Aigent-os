@@ -34,12 +34,19 @@ export const productionClaudeCall: ClaudeCallFn = async (
   systemPrompt,
   conversationHistory,
 ) => {
+  // Add assistant prefill to force JSON output.
+  // Claude will continue from "{" which guarantees a JSON response.
+  const messagesWithPrefill = [
+    ...conversationHistory,
+    { role: "assistant" as const, content: "{" },
+  ];
+
   const apiCall = client.messages.create({
     model: AI_MODEL,
     max_tokens: AI_MAX_TOKENS,
     temperature: AI_TEMPERATURE,
     system: systemPrompt,
-    messages: conversationHistory,
+    messages: messagesWithPrefill,
   });
 
   const timeout = new Promise<never>((_, reject) =>
@@ -56,7 +63,8 @@ export const productionClaudeCall: ClaudeCallFn = async (
     throw new Error("Claude returned no text content");
   }
 
-  return first.text;
+  // Prepend the "{" we used as prefill back onto the response
+  return "{" + first.text;
 };
 
 // ── Production summary ClaudeCallFn ──────────────────────────
