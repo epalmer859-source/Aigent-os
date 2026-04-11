@@ -314,34 +314,8 @@ function UpcomingDayGroup({
           style={{ borderTop: "1px solid var(--border)" }}
         >
           <div className="pt-2" />
-          {jobs.map((job, idx) => (
-            <div
-              key={job.id}
-              className="flex items-center justify-between rounded-lg px-3 py-2.5"
-              style={{ background: "var(--bg-hover)" }}
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold"
-                  style={{ background: "var(--bg)", color: "var(--t3)" }}
-                >
-                  {idx + 1}
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium" style={{ color: "var(--t1)" }}>
-                    {job.customers?.display_name ?? "Customer"}
-                  </p>
-                  <p className="text-xs" style={{ color: "var(--t3)" }}>
-                    {job.service_types?.name ?? "Service"} &middot;{" "}
-                    {job.estimated_duration_minutes}min &middot;{" "}
-                    {job.drive_time_minutes}min drive
-                  </p>
-                  <p className="truncate text-xs" style={{ color: "var(--t3)" }}>
-                    {job.address_text}
-                  </p>
-                </div>
-              </div>
-            </div>
+          {jobs.map((job) => (
+            <CompactJobRow key={job.id} job={job} />
           ))}
         </div>
       )}
@@ -390,7 +364,7 @@ function HistoryTab() {
         <>
           <div className="space-y-2">
             {data.items.map((job) => (
-              <HistoryRow key={job.id} job={job} />
+              <CompactJobRow key={job.id} job={job} />
             ))}
           </div>
 
@@ -431,86 +405,6 @@ function HistoryTab() {
         </>
       )}
     </div>
-  );
-}
-
-function HistoryRow({ job }: { job: any }) {
-  const scheduledDate =
-    job.scheduled_date instanceof Date
-      ? job.scheduled_date
-      : new Date(job.scheduled_date);
-
-  const dateLabel = scheduledDate.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-
-  const arrivedTime = job.arrived_at
-    ? new Date(job.arrived_at).toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : null;
-
-  const completedTime = job.completed_at
-    ? new Date(job.completed_at).toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : null;
-
-  const statusInfo =
-    STATUS_COLORS[job.status as string] ?? STATUS_COLORS.COMPLETED!;
-
-  return (
-    <Link
-      href={`/tech/job/${job.id}`}
-      className="flex items-start gap-3 rounded-xl border px-4 py-3 transition hover:shadow-sm"
-      style={{
-        background: "var(--bg-elevated)",
-        borderColor: "var(--border)",
-      }}
-    >
-      {/* Date badge */}
-      <div
-        className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-lg text-center"
-        style={{ background: "var(--bg-hover)" }}
-      >
-        <span className="text-[10px] font-medium leading-tight" style={{ color: "var(--t3)" }}>
-          {scheduledDate.toLocaleDateString("en-US", { month: "short" })}
-        </span>
-        <span className="text-sm font-bold leading-tight" style={{ color: "var(--t1)" }}>
-          {scheduledDate.getDate()}
-        </span>
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between">
-          <p className="truncate text-sm font-medium" style={{ color: "var(--t1)" }}>
-            {job.customers?.display_name ?? "Customer"}
-          </p>
-          <span
-            className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
-            style={{ background: statusInfo.bg, color: statusInfo.text }}
-          >
-            {statusInfo.label}
-          </span>
-        </div>
-        <p className="text-xs" style={{ color: "var(--t3)" }}>
-          {job.service_types?.name ?? "Service"} &middot; {dateLabel}
-        </p>
-        <p className="truncate text-xs" style={{ color: "var(--t3)" }}>
-          {job.address_text}
-        </p>
-        <div className="mt-1 flex gap-3 text-xs" style={{ color: "var(--t3)" }}>
-          {arrivedTime && <span>Started {arrivedTime}</span>}
-          {completedTime && <span>Done {completedTime}</span>}
-          {job.actual_duration_minutes && (
-            <span>{job.actual_duration_minutes}min</span>
-          )}
-        </div>
-      </div>
-    </Link>
   );
 }
 

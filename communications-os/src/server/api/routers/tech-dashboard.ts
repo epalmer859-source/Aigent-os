@@ -264,12 +264,35 @@ export const techDashboardRouter = createTRPCRouter({
             status: { in: ["COMPLETED", "INCOMPLETE"] },
           },
           include: {
-            customers: { select: { id: true, display_name: true } },
+            customers: {
+              select: {
+                id: true,
+                display_name: true,
+                customer_contacts: {
+                  where: { contact_type: "phone" },
+                  select: { contact_value: true },
+                  take: 1,
+                },
+                conversations: {
+                  where: { primary_state: "booked" },
+                  select: { cached_summary: true },
+                  orderBy: { updated_at: "desc" },
+                  take: 1,
+                },
+              },
+            },
             service_types: { select: { id: true, name: true } },
+            appointments: {
+              select: {
+                conversations: {
+                  select: { cached_summary: true },
+                },
+              },
+            },
           },
           orderBy: { completed_at: "desc" },
           skip,
-          take: take + 1, // fetch one extra to detect hasMore
+          take: take + 1,
         }),
         ctx.db.scheduling_jobs.count({
           where: {
@@ -280,7 +303,14 @@ export const techDashboardRouter = createTRPCRouter({
       ]);
 
       const hasMore = jobs.length > take;
-      const items = hasMore ? jobs.slice(0, take) : jobs;
+      const items = (hasMore ? jobs.slice(0, take) : jobs).map((j) => ({
+        ...j,
+        customer_phone: j.customers?.customer_contacts?.[0]?.contact_value ?? null,
+        job_summary:
+          j.appointments?.conversations?.cached_summary
+          ?? j.customers?.conversations?.[0]?.cached_summary
+          ?? null,
+      }));
 
       return { items, total, hasMore, nextCursor: skip + take };
     }),
@@ -344,18 +374,50 @@ export const techDashboardRouter = createTRPCRouter({
 
   /** Get cancelled/no-show jobs */
   cancelledJobs: technicianProcedure.query(async ({ ctx }) => {
-    return ctx.db.scheduling_jobs.findMany({
+    const jobs = await ctx.db.scheduling_jobs.findMany({
       where: {
         technician_id: ctx.technicianId,
         status: "CANCELED",
       },
       include: {
-        customers: { select: { id: true, display_name: true } },
+        customers: {
+          select: {
+            id: true,
+            display_name: true,
+            customer_contacts: {
+              where: { contact_type: "phone" },
+              select: { contact_value: true },
+              take: 1,
+            },
+            conversations: {
+              where: { primary_state: "booked" },
+              select: { cached_summary: true },
+              orderBy: { updated_at: "desc" },
+              take: 1,
+            },
+          },
+        },
         service_types: { select: { id: true, name: true } },
+        appointments: {
+          select: {
+            conversations: {
+              select: { cached_summary: true },
+            },
+          },
+        },
       },
       orderBy: { updated_at: "desc" },
       take: 50,
     });
+
+    return jobs.map((j) => ({
+      ...j,
+      customer_phone: j.customers?.customer_contacts?.[0]?.contact_value ?? null,
+      job_summary:
+        j.appointments?.conversations?.cached_summary
+        ?? j.customers?.conversations?.[0]?.cached_summary
+        ?? null,
+    }));
   }),
 
   /** Get technician's own profile info (full details for settings) */
