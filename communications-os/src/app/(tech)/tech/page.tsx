@@ -606,6 +606,17 @@ function JobCard({
             </div>
           )}
 
+          {/* Update via Assistant */}
+          <Link
+            href={`/tech/assistant?jobId=${job.id}&jobName=${encodeURIComponent(customerName)}&jobService=${encodeURIComponent(job.service_types?.name ?? "Service")}`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition hover:shadow-sm"
+            style={{ borderColor: "#22c55e", color: "#22c55e", background: "rgba(34,197,94,0.05)" }}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zm-4 0H9v2h2V9z" clipRule="evenodd" /></svg>
+            Update Job via Assistant
+          </Link>
+
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2 pt-1">
             {job.status === "NOT_STARTED" && isNextInQueue && (

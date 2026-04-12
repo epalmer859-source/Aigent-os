@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { api } from "~/trpc/react";
 
 interface Message {
@@ -9,12 +11,18 @@ interface Message {
 }
 
 export default function TechAssistantPage() {
+  const searchParams = useSearchParams();
+  const jobId = searchParams.get("jobId");
+  const jobName = searchParams.get("jobName");
+  const jobService = searchParams.get("jobService");
+
+  const hasJobContext = !!(jobId && jobName);
+  const contextGreeting = hasJobContext
+    ? `I see you're working on **${jobName}**'s ${jobService ?? "job"}. How can I help? You can tell me:\n\n- How long you think it'll take\n- If it's done and needs a follow-up\n- Add notes about what you found\n- Request a reschedule\n\nWhat's the update?`
+    : "Hey! I'm your scheduling assistant. I can help you check your schedule, update job statuses, add notes, or request schedule changes. What do you need?";
+
   const [messages, setMessages] = useState<Message[]>([
-    {
-      role: "assistant",
-      content:
-        "Hey! I'm your scheduling assistant. I can help you check your schedule, update job statuses, add notes, or request schedule changes. What do you need?",
-    },
+    { role: "assistant", content: contextGreeting },
   ]);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -55,19 +63,34 @@ export default function TechAssistantPage() {
       .slice(1) // skip the initial assistant greeting
       .map((m) => ({ role: m.role, content: m.content }));
 
-    chat.mutate({ messages: history });
+    chat.mutate({ messages: history, jobContext: jobId ? { jobId, customerName: jobName ?? "", service: jobService ?? "" } : undefined });
   }
 
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col">
       {/* Header */}
       <div className="mb-4 shrink-0">
-        <h1 className="text-2xl font-bold" style={{ color: "var(--t1)" }}>
-          Assistant
-        </h1>
-        <p className="text-sm" style={{ color: "var(--t3)" }}>
-          Chat about your schedule, request changes, or get help
-        </p>
+        <div className="flex items-center gap-3">
+          {hasJobContext && (
+            <Link
+              href="/tech"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border transition hover:shadow-sm"
+              style={{ borderColor: "var(--border)", color: "var(--t2)" }}
+            >
+              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" /></svg>
+            </Link>
+          )}
+          <div>
+            <h1 className="text-2xl font-bold" style={{ color: "var(--t1)" }}>
+              {hasJobContext ? `${jobName}'s Job` : "Assistant"}
+            </h1>
+            <p className="text-sm" style={{ color: "var(--t3)" }}>
+              {hasJobContext
+                ? `${jobService ?? "Service"} — update status, time estimate, or notes`
+                : "Chat about your schedule, request changes, or get help"}
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Messages */}
@@ -162,11 +185,19 @@ export default function TechAssistantPage() {
 
         {/* Quick actions */}
         <div className="mt-2 flex flex-wrap gap-1.5 pb-1">
-          {[
-            "What's my schedule today?",
-            "What jobs do I have tomorrow?",
-            "I need to leave early Friday",
-          ].map((suggestion) => (
+          {(hasJobContext
+            ? [
+                "This job will take about 2 hours",
+                "Done — needs a follow-up visit",
+                "Job complete, all fixed",
+                "Customer needs a different part",
+              ]
+            : [
+                "What's my schedule today?",
+                "What jobs do I have tomorrow?",
+                "I need to leave early Friday",
+              ]
+          ).map((suggestion) => (
             <button
               key={suggestion}
               type="button"

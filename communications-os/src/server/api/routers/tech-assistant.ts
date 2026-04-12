@@ -256,6 +256,11 @@ export const techAssistantRouter = createTRPCRouter({
             content: z.string(),
           }),
         ),
+        jobContext: z.object({
+          jobId: z.string(),
+          customerName: z.string(),
+          service: z.string(),
+        }).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -273,7 +278,12 @@ export const techAssistantRouter = createTRPCRouter({
 
       const techName = tech?.name ?? "Technician";
       const businessName = business?.business_name ?? "your company";
-      const systemPrompt = buildSystemPrompt(techName, businessName);
+      let systemPrompt = buildSystemPrompt(techName, businessName);
+
+      // If there's a job context, add it to the system prompt so Claude knows which job is being discussed
+      if (input.jobContext) {
+        systemPrompt += `\n\nIMPORTANT: The tech is currently viewing a specific job. When they say "this job" or give updates without specifying which job, they mean:\n- Job ID: ${input.jobContext.jobId}\n- Customer: ${input.jobContext.customerName}\n- Service: ${input.jobContext.service}\n\nUse this job ID for any add_job_note or update_job_status calls unless they explicitly mention a different job.`;
+      }
 
       // Run the agentic loop — Claude may call multiple tools
       let messages: Anthropic.MessageParam[] = input.messages.map((m) => ({
