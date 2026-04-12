@@ -9,6 +9,10 @@ import {
   INDUSTRY_LABELS,
   INDUSTRY_QUESTIONS,
 } from "./_data/industryQuestions";
+import ServiceEstimatesStep, {
+  buildInitialEstimates,
+  type ServiceEstimateEntry,
+} from "./_components/ServiceEstimatesStep";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,6 +76,8 @@ interface FormData {
   customerPhilosophy: string;
   // Step 9
   industryAnswers: Record<string, string>;
+  // HVAC service estimates (only used when industry === "hvac")
+  serviceEstimates: ServiceEstimateEntry[];
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -148,6 +154,7 @@ const INITIAL: FormData = {
   googleReviewLink: "",
   customerPhilosophy: "",
   industryAnswers: {},
+  serviceEstimates: buildInitialEstimates(),
 };
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
@@ -1025,18 +1032,24 @@ function Step10({
 
 // ─── Step metadata ────────────────────────────────────────────────────────────
 
-const STEPS = [
-  { title: "Business Basics", subtitle: "Let's start with the essentials" },
-  { title: "Contact Info", subtitle: "How we reach you for urgent issues" },
-  { title: "Services", subtitle: "What you do and how you price it" },
-  { title: "Scheduling", subtitle: "When you work and how jobs are booked" },
-  { title: "Service Area", subtitle: "Where you operate" },
-  { title: "Policies", subtitle: "Your rules and payment methods" },
-  { title: "AI Personality", subtitle: "How the AI talks to your customers" },
-  { title: "Business Story", subtitle: "Background the AI needs to know" },
-  { title: "Industry Details", subtitle: "A few questions specific to your trade" },
-  { title: "Review & Submit", subtitle: "Everything look right?" },
-];
+const BASE_STEPS = [
+  { key: "basics", title: "Business Basics", subtitle: "Let's start with the essentials" },
+  { key: "contact", title: "Contact Info", subtitle: "How we reach you for urgent issues" },
+  { key: "services", title: "Services", subtitle: "What you do and how you price it" },
+  { key: "service_estimates", title: "Service Time Estimates", subtitle: "How long each job type takes your team", hvacOnly: true },
+  { key: "scheduling", title: "Scheduling", subtitle: "When you work and how jobs are booked" },
+  { key: "area", title: "Service Area", subtitle: "Where you operate" },
+  { key: "policies", title: "Policies", subtitle: "Your rules and payment methods" },
+  { key: "ai_personality", title: "AI Personality", subtitle: "How the AI talks to your customers" },
+  { key: "story", title: "Business Story", subtitle: "Background the AI needs to know" },
+  { key: "industry", title: "Industry Details", subtitle: "A few questions specific to your trade" },
+  { key: "review", title: "Review & Submit", subtitle: "Everything look right?" },
+] as const;
+
+function getSteps(industry: string) {
+  if (industry === "hvac") return BASE_STEPS;
+  return BASE_STEPS.filter((s) => !("hvacOnly" in s && s.hvacOnly));
+}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -1046,13 +1059,25 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [data, setData] = useState<FormData>(INITIAL);
   const [submitError, setSubmitError] = useState("");
+  const STEPS = getSteps(data.industry);
 
   function set(key: keyof FormData, value: unknown) {
     setData((prev) => ({ ...prev, [key]: value }));
   }
 
+  const saveEstimates = api.serviceEstimates.saveFromOnboarding.useMutation();
+
   const completeMutation = api.onboarding.complete.useMutation({
     onSuccess: async () => {
+      // Save HVAC service estimates if this is an HVAC business
+      if (data.industry === "hvac" && data.serviceEstimates.length > 0) {
+        try {
+          await saveEstimates.mutateAsync(data.serviceEstimates);
+        } catch {
+          // Non-blocking — estimates can be configured in settings later
+          console.warn("[onboarding] Failed to save service estimates");
+        }
+      }
       await update(); // triggers jwt callback → re-fetches businessId from DB
       router.push("/dashboard/urgent");
     },
@@ -1146,16 +1171,22 @@ export default function OnboardingPage() {
           </h2>
           <p className="mb-6 text-sm text-gray-500">{currentStep.subtitle}</p>
 
-          {step === 0 && <Step1 data={data} set={set} />}
-          {step === 1 && <Step2 data={data} set={set} />}
-          {step === 2 && <Step3 data={data} set={set} />}
-          {step === 3 && <Step4 data={data} set={set} />}
-          {step === 4 && <Step5 data={data} set={set} />}
-          {step === 5 && <Step6 data={data} set={set} />}
-          {step === 6 && <Step7 data={data} set={set} />}
-          {step === 7 && <Step8 data={data} set={set} />}
-          {step === 8 && <Step9 data={data} set={set} />}
-          {step === 9 && <Step10 data={data} set={set} />}
+          {currentStep.key === "basics" && <Step1 data={data} set={set} />}
+          {currentStep.key === "contact" && <Step2 data={data} set={set} />}
+          {currentStep.key === "services" && <Step3 data={data} set={set} />}
+          {currentStep.key === "service_estimates" && (
+            <ServiceEstimatesStep
+              estimates={data.serviceEstimates}
+              onChange={(updated) => set("serviceEstimates", updated)}
+            />
+          )}
+          {currentStep.key === "scheduling" && <Step4 data={data} set={set} />}
+          {currentStep.key === "area" && <Step5 data={data} set={set} />}
+          {currentStep.key === "policies" && <Step6 data={data} set={set} />}
+          {currentStep.key === "ai_personality" && <Step7 data={data} set={set} />}
+          {currentStep.key === "story" && <Step8 data={data} set={set} />}
+          {currentStep.key === "industry" && <Step9 data={data} set={set} />}
+          {currentStep.key === "review" && <Step10 data={data} set={set} />}
 
           {submitError && (
             <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">

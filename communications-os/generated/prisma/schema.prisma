@@ -185,6 +185,8 @@ model businesses {
   rebook_queue                          rebook_queue[]
   queue_arrangements                    queue_arrangements[]
   scheduling_mode_events                scheduling_mode_events[]
+  service_estimates                     service_estimates[]
+  onsite_cap_minutes                    Int                                 @default(150)
 }
 
 model calendar_connections {
@@ -264,6 +266,7 @@ model conversations {
   contact_display_name                                                             String?
   channel                                                                          String
   collected_service_address                                                        String?
+  availability_cutoff_time                                                         String?
   pending_booking_slots                                                            Json?
   cached_summary                                                                   String?
   summary_updated_at                                                               DateTime?                           @db.Timestamptz(6)
@@ -1022,6 +1025,23 @@ model service_types {
   scheduling_jobs        scheduling_jobs[]
 
   @@index([business_id], map: "service_types_business_idx")
+}
+
+model service_estimates {
+  id                String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id       String     @db.Uuid
+  name              String
+  category          String
+  estimated_minutes Int
+  is_active         Boolean    @default(true)
+  is_default        Boolean    @default(false)
+  tier              String // "required", "optional", "custom"
+  created_at        DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime   @default(now()) @db.Timestamptz(6)
+  businesses        businesses @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([business_id, name], map: "service_estimates_biz_name_unique")
+  @@index([business_id, is_active], map: "service_estimates_biz_active_idx")
 }
 
 model scheduling_jobs {

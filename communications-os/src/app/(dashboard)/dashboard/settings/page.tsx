@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
+import { CATEGORY_LABELS, HVAC_CATEGORIES } from "~/engine/scheduling/hvac-service-defaults";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type Tab =
   | "business"
   | "ai"
   | "services"
+  | "service_estimates"
   | "hours"
   | "policies"
   | "quotes"
@@ -16,16 +18,17 @@ type Tab =
   | "team"
   | "danger";
 
-const TABS: { value: Tab; label: string }[] = [
-  { value: "business",     label: "Business Info" },
-  { value: "ai",           label: "AI Behavior"   },
-  { value: "services",     label: "Services"       },
-  { value: "hours",        label: "Hours"          },
-  { value: "policies",     label: "Policies"       },
-  { value: "quotes",       label: "Quotes"         },
-  { value: "technicians",  label: "Technicians"    },
-  { value: "team",         label: "Team"           },
-  { value: "danger",       label: "Danger Zone"    },
+const BASE_TABS: { value: Tab; label: string; hvacOnly?: boolean }[] = [
+  { value: "business",           label: "Business Info" },
+  { value: "ai",                 label: "AI Behavior"   },
+  { value: "services",           label: "Services"       },
+  { value: "service_estimates",  label: "Service Times", hvacOnly: true },
+  { value: "hours",              label: "Hours"          },
+  { value: "policies",           label: "Policies"       },
+  { value: "quotes",             label: "Quotes"         },
+  { value: "technicians",        label: "Technicians"    },
+  { value: "team",               label: "Team"           },
+  { value: "danger",             label: "Danger Zone"    },
 ];
 
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -639,7 +642,7 @@ export default function SettingsPage() {
         className="flex gap-1 overflow-x-auto rounded-xl p-1"
         style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", scrollbarWidth: "none" }}
       >
-        {TABS.map((t) => {
+        {BASE_TABS.filter((t) => !t.hvacOnly || data?.industry === "hvac").map((t) => {
           const active = tab === t.value;
           const isDanger = t.value === "danger";
           return (
@@ -900,6 +903,9 @@ export default function SettingsPage() {
           )}
         </div>
       )}
+
+      {/* ── Service Time Estimates (HVAC only) ──────────────────────────── */}
+      {tab === "service_estimates" && <ServiceEstimatesTab isOwner={isOwner} />}
 
       {/* ── Business Hours ─────────────────────────────────────────────────── */}
       {tab === "hours" && (
@@ -1259,6 +1265,287 @@ export default function SettingsPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Service Estimates Tab (HVAC) ──────────────────────────────────────────
+
+function ServiceEstimatesTab({ isOwner }: { isOwner: boolean }) {
+  const { data: estimates, isLoading, refetch } = api.serviceEstimates.list.useQuery();
+  const { data: capData } = api.serviceEstimates.getOnsiteCap.useQuery();
+  const updateMut = api.serviceEstimates.update.useMutation({ onSuccess: () => void refetch() });
+  const addMut = api.serviceEstimates.addCustom.useMutation({ onSuccess: () => void refetch() });
+  const deleteMut = api.serviceEstimates.deleteCustom.useMutation({ onSuccess: () => void refetch() });
+  const seedMut = api.serviceEstimates.seedDefaults.useMutation({ onSuccess: () => void refetch() });
+  const updateCap = api.serviceEstimates.updateOnsiteCap.useMutation();
+
+  const [customName, setCustomName] = useState("");
+  const [customCategory, setCustomCategory] = useState<string>(HVAC_CATEGORIES[0]!);
+  const [customMinutes, setCustomMinutes] = useState(30);
+  const [onsiteCap, setOnsiteCap] = useState(150);
+  const [capSaved, setCapSaved] = useState(false);
+
+  useEffect(() => {
+    if (capData) setOnsiteCap(capData.onsiteCapMinutes);
+  }, [capData]);
+
+  // Auto-seed if no estimates exist yet
+  useEffect(() => {
+    if (estimates && estimates.length === 0 && !seedMut.isPending) {
+      seedMut.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estimates]);
+
+  if (isLoading) {
+    return <p className="py-6 text-center text-sm" style={{ color: "var(--t3)" }}>Loading service estimates...</p>;
+  }
+
+  const required = (estimates ?? []).filter((e) => e.tier === "required");
+  const optional = (estimates ?? []).filter((e) => e.tier === "optional");
+  const custom = (estimates ?? []).filter((e) => e.tier === "custom");
+
+  function groupByCategory<T extends { category: string }>(items: T[]): Map<string, T[]> {
+    const map = new Map<string, T[]>();
+    for (const item of items) {
+      if (!map.has(item.category)) map.set(item.category, []);
+      map.get(item.category)!.push(item);
+    }
+    return map;
+  }
+
+  const enabledOptional = optional.filter((o) => o.is_active).length;
+
+  return (
+    <div className="space-y-6">
+      {/* On-Site Cap */}
+      <Section title="On-Site Time Cap">
+        <p className="mb-2 text-xs" style={{ color: "var(--t3)" }}>
+          Maximum minutes a tech should spend on a single visit before scheduling a return.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            min={30}
+            max={480}
+            value={onsiteCap}
+            onChange={(e) => { setOnsiteCap(parseInt(e.target.value) || 150); setCapSaved(false); }}
+            disabled={!isOwner}
+            className="w-24 rounded-lg border px-3 py-2 text-sm"
+            style={{ borderColor: "var(--border)", background: "var(--bg-surface)", color: "var(--t1)" }}
+          />
+          <span className="text-sm" style={{ color: "var(--t3)" }}>minutes</span>
+          {isOwner && (
+            <SaveBtn
+              onClick={() => {
+                updateCap.mutate({ onsiteCapMinutes: onsiteCap }, {
+                  onSuccess: () => { setCapSaved(true); setTimeout(() => setCapSaved(false), 2000); },
+                });
+              }}
+              isPending={updateCap.isPending}
+              saved={capSaved}
+              disabled={false}
+            />
+          )}
+        </div>
+      </Section>
+
+      {/* Required Services */}
+      <Section title="Required Services (30)">
+        <p className="mb-3 text-xs" style={{ color: "var(--t3)" }}>
+          Core services — adjust time estimates but cannot be deactivated.
+        </p>
+        {Array.from(groupByCategory(required).entries()).map(([cat, items]) => (
+          <EstimateCategoryGroup
+            key={cat}
+            category={cat}
+            items={items}
+            showToggle={false}
+            isOwner={isOwner}
+            onUpdate={(id, mins) => updateMut.mutate({ id, estimatedMinutes: mins })}
+          />
+        ))}
+      </Section>
+
+      {/* Optional Services */}
+      <Section title={`Additional Services (${enabledOptional} of ${optional.length} enabled)`}>
+        <p className="mb-3 text-xs" style={{ color: "var(--t3)" }}>
+          Enabling additional services drastically improves the AI&apos;s scheduling accuracy before inspection.
+        </p>
+        {Array.from(groupByCategory(optional).entries()).map(([cat, items]) => (
+          <EstimateCategoryGroup
+            key={cat}
+            category={cat}
+            items={items}
+            showToggle={true}
+            isOwner={isOwner}
+            onUpdate={(id, mins) => updateMut.mutate({ id, estimatedMinutes: mins })}
+            onToggle={(id, active) => updateMut.mutate({ id, isActive: active })}
+          />
+        ))}
+      </Section>
+
+      {/* Custom Services */}
+      <Section title={`Custom Services (${custom.length})`}>
+        {custom.length > 0 && (
+          <div className="mb-4 space-y-1.5">
+            {custom.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center gap-3 rounded-lg border px-3 py-2"
+                style={{ borderColor: "var(--border)", background: "var(--bg-surface)" }}
+              >
+                <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--t1)" }}>
+                  {item.name}
+                </span>
+                <span className="text-xs" style={{ color: "var(--t3)" }}>
+                  {CATEGORY_LABELS[item.category] ?? item.category}
+                </span>
+                <input
+                  type="number"
+                  min={5}
+                  max={600}
+                  value={item.estimated_minutes}
+                  onChange={(e) =>
+                    updateMut.mutate({ id: item.id, estimatedMinutes: parseInt(e.target.value) || 5 })
+                  }
+                  disabled={!isOwner}
+                  className="w-16 rounded border px-2 py-1 text-right text-sm"
+                  style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--t1)" }}
+                />
+                <span className="text-xs" style={{ color: "var(--t3)" }}>min</span>
+                {isOwner && (
+                  <button
+                    onClick={() => deleteMut.mutate({ id: item.id })}
+                    className="text-xs font-medium"
+                    style={{ color: "#ef4444" }}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isOwner && (
+          <div className="rounded-lg border p-3" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+            <p className="mb-2 text-xs font-medium" style={{ color: "var(--t2)" }}>Add Custom Service</p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="text"
+                placeholder="Service name"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                className="min-w-[140px] flex-1 rounded border px-2 py-1.5 text-sm"
+                style={{ borderColor: "var(--border)", background: "var(--bg-surface)", color: "var(--t1)" }}
+              />
+              <select
+                value={customCategory}
+                onChange={(e) => setCustomCategory(e.target.value)}
+                className="rounded border px-2 py-1.5 text-sm"
+                style={{ borderColor: "var(--border)", background: "var(--bg-surface)", color: "var(--t1)" }}
+              >
+                {HVAC_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{CATEGORY_LABELS[cat]}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min={5}
+                max={600}
+                value={customMinutes}
+                onChange={(e) => setCustomMinutes(parseInt(e.target.value) || 30)}
+                className="w-20 rounded border px-2 py-1.5 text-right text-sm"
+                style={{ borderColor: "var(--border)", background: "var(--bg-surface)", color: "var(--t1)" }}
+              />
+              <span className="self-center text-xs" style={{ color: "var(--t3)" }}>min</span>
+              <button
+                onClick={() => {
+                  if (!customName.trim()) return;
+                  addMut.mutate(
+                    { name: customName.trim(), category: customCategory, estimatedMinutes: customMinutes },
+                    { onSuccess: () => { setCustomName(""); setCustomMinutes(30); } },
+                  );
+                }}
+                disabled={!customName.trim() || addMut.isPending}
+                className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                style={{ background: "#3b82f6" }}
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        )}
+      </Section>
+    </div>
+  );
+}
+
+function EstimateCategoryGroup({
+  category,
+  items,
+  showToggle,
+  isOwner,
+  onUpdate,
+  onToggle,
+}: {
+  category: string;
+  items: { id: string; name: string; estimated_minutes: number; is_active: boolean }[];
+  showToggle: boolean;
+  isOwner: boolean;
+  onUpdate: (id: string, minutes: number) => void;
+  onToggle?: (id: string, active: boolean) => void;
+}) {
+  return (
+    <div className="mb-4">
+      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--t3)" }}>
+        {CATEGORY_LABELS[category] ?? category}
+      </p>
+      <div className="space-y-1.5">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="flex items-center gap-3 rounded-lg border px-3 py-2"
+            style={{
+              borderColor: item.is_active ? "var(--border)" : "var(--bg-hover)",
+              background: item.is_active ? "var(--bg-surface)" : "var(--bg)",
+              opacity: item.is_active ? 1 : 0.5,
+            }}
+          >
+            {showToggle && onToggle && (
+              <button
+                type="button"
+                onClick={() => isOwner && onToggle(item.id, !item.is_active)}
+                disabled={!isOwner}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs"
+                style={{
+                  borderColor: item.is_active ? "#3b82f6" : "var(--border)",
+                  background: item.is_active ? "#3b82f6" : "var(--bg-surface)",
+                  color: item.is_active ? "#fff" : "transparent",
+                }}
+              >
+                {item.is_active ? "\u2713" : ""}
+              </button>
+            )}
+            <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--t1)" }}>
+              {item.name}
+            </span>
+            <input
+              type="number"
+              min={5}
+              max={600}
+              value={item.estimated_minutes}
+              onChange={(e) => onUpdate(item.id, parseInt(e.target.value) || 5)}
+              disabled={!isOwner || (showToggle && !item.is_active)}
+              className="w-16 rounded border px-2 py-1 text-right text-sm"
+              style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--t1)" }}
+            />
+            <span className="text-xs" style={{ color: "var(--t3)" }}>min</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

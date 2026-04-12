@@ -384,6 +384,28 @@ async function main() {
   });
   console.log("✅ Created 2 approval requests");
 
+  // ── Service Estimates (HVAC 60 defaults) ──────────────────────────────────
+  const existingEstimates = await prisma.service_estimates.findFirst({
+    where: { business_id: business.id },
+  });
+  if (!existingEstimates) {
+    const { ALL_DEFAULT_SERVICES } = await import("../src/engine/scheduling/hvac-service-defaults.js");
+    await prisma.service_estimates.createMany({
+      data: ALL_DEFAULT_SERVICES.map((s: { name: string; category: string; estimatedMinutes: number; tier: string }) => ({
+        business_id: business.id,
+        name: s.name,
+        category: s.category,
+        estimated_minutes: s.estimatedMinutes,
+        is_active: true, // All 60 active for testing
+        is_default: true,
+        tier: s.tier,
+      })),
+    });
+    console.log("✅ Created 60 HVAC service estimates");
+  } else {
+    console.log("ℹ️  Service estimates already exist — skipping.");
+  }
+
   console.log("\n🎉 Seed complete! All test data created.");
 }
 

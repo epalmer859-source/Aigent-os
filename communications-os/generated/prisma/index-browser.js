@@ -241,7 +241,8 @@ exports.Prisma.BusinessesScalarFieldEnum = {
   onboarding_completed_at: 'onboarding_completed_at',
   deleted_at: 'deleted_at',
   created_at: 'created_at',
-  updated_at: 'updated_at'
+  updated_at: 'updated_at',
+  onsite_cap_minutes: 'onsite_cap_minutes'
 };
 
 exports.Prisma.Calendar_connectionsScalarFieldEnum = {
@@ -308,6 +309,7 @@ exports.Prisma.ConversationsScalarFieldEnum = {
   contact_display_name: 'contact_display_name',
   channel: 'channel',
   collected_service_address: 'collected_service_address',
+  availability_cutoff_time: 'availability_cutoff_time',
   pending_booking_slots: 'pending_booking_slots',
   cached_summary: 'cached_summary',
   summary_updated_at: 'summary_updated_at',
@@ -662,6 +664,19 @@ exports.Prisma.Service_typesScalarFieldEnum = {
   buffer_multiplier: 'buffer_multiplier',
   property_type_variants: 'property_type_variants',
   symptom_phrases: 'symptom_phrases',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.Service_estimatesScalarFieldEnum = {
+  id: 'id',
+  business_id: 'business_id',
+  name: 'name',
+  category: 'category',
+  estimated_minutes: 'estimated_minutes',
+  is_active: 'is_active',
+  is_default: 'is_default',
+  tier: 'tier',
   created_at: 'created_at',
   updated_at: 'updated_at'
 };
@@ -1123,6 +1138,7 @@ exports.Prisma.ModelName = {
   technicians: 'technicians',
   technician_skill_tags: 'technician_skill_tags',
   service_types: 'service_types',
+  service_estimates: 'service_estimates',
   scheduling_jobs: 'scheduling_jobs',
   capacity_reservations: 'capacity_reservations',
   scheduling_events: 'scheduling_events',

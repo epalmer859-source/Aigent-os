@@ -11,6 +11,7 @@ import { analyticsRouter } from "~/server/api/routers/analytics";
 import { schedulingRouter } from "~/server/api/routers/scheduling";
 import { techDashboardRouter } from "~/server/api/routers/tech-dashboard";
 import { techAssistantRouter } from "~/server/api/routers/tech-assistant";
+import { serviceEstimatesRouter } from "~/server/api/routers/service-estimates";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 
 export const appRouter = createTRPCRouter({
@@ -27,6 +28,7 @@ export const appRouter = createTRPCRouter({
   scheduling: schedulingRouter,
   techDashboard: techDashboardRouter,
   techAssistant: techAssistantRouter,
+  serviceEstimates: serviceEstimatesRouter,
 });
 
 export type AppRouter = typeof appRouter;
