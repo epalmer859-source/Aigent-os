@@ -484,6 +484,8 @@ function JobCard({
   isNextInQueue?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showDelayOptions, setShowDelayOptions] = useState(false);
+  const [selectedDelay, setSelectedDelay] = useState<number | null>(null);
   const statusInfo = STATUS_COLORS[job.status as string] ?? STATUS_COLORS.NOT_STARTED!;
   const nextStatus = NEXT_STATUS[job.status as string];
   const actionLabel = nextStatus ? ACTION_LABELS[nextStatus] : undefined;
@@ -617,14 +619,81 @@ function JobCard({
               </button>
             )}
             {job.status === "EN_ROUTE" && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onStatusChange("ARRIVED"); }}
-                disabled={isUpdating}
-                className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
-                style={{ background: "#f59e0b" }}
-              >
-                {isUpdating ? "Updating..." : "Mark Arrived"}
-              </button>
+              <div className="flex w-full flex-col gap-2">
+                {/* Arrived / Delayed row */}
+                {!showDelayOptions ? (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onStatusChange("ARRIVED"); }}
+                      disabled={isUpdating}
+                      className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
+                      style={{ background: "#f59e0b" }}
+                    >
+                      {isUpdating ? "Updating..." : "Arrived"}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowDelayOptions(true); }}
+                      disabled={isUpdating}
+                      className="flex-1 rounded-lg border-2 px-4 py-2.5 text-sm font-semibold transition disabled:opacity-60"
+                      style={{ borderColor: "#ef4444", color: "#ef4444", background: "rgba(239,68,68,0.05)" }}
+                    >
+                      Delayed
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium" style={{ color: "var(--t2)" }}>
+                      How long is the delay?
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {[10, 15, 20, 30, 40].map((mins) => (
+                        <button
+                          key={mins}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedDelay(mins);
+                            setShowDelayOptions(false);
+                          }}
+                          className="rounded-lg border px-3 py-2 text-sm font-medium transition hover:shadow-sm"
+                          style={{
+                            borderColor: "#ef4444",
+                            color: "#ef4444",
+                            background: "rgba(239,68,68,0.05)",
+                          }}
+                        >
+                          {mins} min
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowDelayOptions(false); }}
+                      className="text-xs font-medium"
+                      style={{ color: "var(--t3)" }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
+                {/* Show selected delay badge + still allow Arrived */}
+                {selectedDelay && !showDelayOptions && (
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                      style={{ background: "#fee2e2", color: "#991b1b" }}
+                    >
+                      Delayed ~{selectedDelay} min
+                    </span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedDelay(null); }}
+                      className="text-xs"
+                      style={{ color: "var(--t3)" }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             {job.status === "ARRIVED" && (
               <button
