@@ -1,10 +1,26 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, businessProcedure, ownerProcedure } from "~/server/api/trpc";
 import { ALL_DEFAULT_SERVICES, HVAC_CATEGORIES } from "~/engine/scheduling/hvac-service-defaults";
+
+/** Throw if the business is not HVAC. */
+async function assertHvac(db: any, businessId: string) {
+  const biz = await db.businesses.findUnique({
+    where: { id: businessId },
+    select: { industry: true },
+  });
+  if (biz?.industry !== "hvac") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Service time estimates are only available for HVAC businesses",
+    });
+  }
+}
 
 export const serviceEstimatesRouter = createTRPCRouter({
   /** Get all service estimates for the current business, grouped by category */
   list: businessProcedure.query(async ({ ctx }) => {
+    await assertHvac(ctx.db, ctx.businessId);
     const rows = await ctx.db.service_estimates.findMany({
       where: { business_id: ctx.businessId },
       orderBy: [{ category: "asc" }, { tier: "asc" }, { name: "asc" }],
@@ -14,6 +30,7 @@ export const serviceEstimatesRouter = createTRPCRouter({
 
   /** Seed the 60 default HVAC services for a business (idempotent — skips if any exist) */
   seedDefaults: ownerProcedure.mutation(async ({ ctx }) => {
+    await assertHvac(ctx.db, ctx.businessId);
     const existing = await ctx.db.service_estimates.count({
       where: { business_id: ctx.businessId },
     });
@@ -48,6 +65,7 @@ export const serviceEstimatesRouter = createTRPCRouter({
       ),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertHvac(ctx.db, ctx.businessId);
       // Delete any existing defaults and re-insert with owner's adjustments
       await ctx.db.service_estimates.deleteMany({
         where: { business_id: ctx.businessId, is_default: true },
@@ -78,6 +96,7 @@ export const serviceEstimatesRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertHvac(ctx.db, ctx.businessId);
       const row = await ctx.db.service_estimates.findFirst({
         where: { id: input.id, business_id: ctx.businessId },
       });
@@ -108,6 +127,7 @@ export const serviceEstimatesRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertHvac(ctx.db, ctx.businessId);
       return ctx.db.service_estimates.create({
         data: {
           business_id: ctx.businessId,
@@ -125,6 +145,7 @@ export const serviceEstimatesRouter = createTRPCRouter({
   deleteCustom: ownerProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertHvac(ctx.db, ctx.businessId);
       const row = await ctx.db.service_estimates.findFirst({
         where: { id: input.id, business_id: ctx.businessId },
       });
@@ -137,6 +158,7 @@ export const serviceEstimatesRouter = createTRPCRouter({
 
   /** Get on-site cap minutes for the business */
   getOnsiteCap: businessProcedure.query(async ({ ctx }) => {
+    await assertHvac(ctx.db, ctx.businessId);
     const biz = await ctx.db.businesses.findUnique({
       where: { id: ctx.businessId },
       select: { onsite_cap_minutes: true },
@@ -148,6 +170,7 @@ export const serviceEstimatesRouter = createTRPCRouter({
   updateOnsiteCap: ownerProcedure
     .input(z.object({ onsiteCapMinutes: z.number().int().min(30).max(480) }))
     .mutation(async ({ ctx, input }) => {
+      await assertHvac(ctx.db, ctx.businessId);
       return ctx.db.businesses.update({
         where: { id: ctx.businessId },
         data: { onsite_cap_minutes: input.onsiteCapMinutes },
