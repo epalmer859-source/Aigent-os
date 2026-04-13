@@ -24,14 +24,12 @@ const STATUS_FLOW: string[] = [
   "COMPLETED",
 ];
 
-type ValidStatus = "NOT_STARTED" | "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "COMPLETED" | "INCOMPLETE" | "NEEDS_REBOOK";
-type CompletionNote = "FIXED" | "NEEDS_FOLLOWUP" | "CUSTOMER_DECLINED";
+type ValidStatus = "NOT_STARTED" | "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "NEEDS_REBOOK";
 
 export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const [completionNote, setCompletionNote] = useState<CompletionNote>("FIXED");
-  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showCompletionFlow, setShowCompletionFlow] = useState(false);
 
   const { data: job, isLoading, refetch } = api.techDashboard.jobDetail.useQuery(
     { jobId: id },
@@ -69,29 +67,12 @@ export default function JobDetailPage() {
 
   function handleAdvance() {
     if (nextStatus === "COMPLETED") {
-      setShowCompleteModal(true);
+      setShowCompletionFlow(true);
       return;
     }
     if (nextStatus) {
       updateStatus.mutate({ jobId: id, status: nextStatus as ValidStatus });
     }
-  }
-
-  function handleComplete() {
-    updateStatus.mutate({
-      jobId: id,
-      status: "COMPLETED",
-      completionNote,
-    });
-    setShowCompleteModal(false);
-  }
-
-  function handleIncomplete() {
-    updateStatus.mutate({
-      jobId: id,
-      status: "INCOMPLETE",
-      completionNote: "NEEDS_FOLLOWUP",
-    });
   }
 
   function handleNeedsRebook() {
@@ -215,115 +196,197 @@ export default function JobDetailPage() {
 
           {/* Secondary actions */}
           {job.status === "IN_PROGRESS" && (
-            <div className="flex gap-2">
-              <button
-                onClick={handleIncomplete}
-                disabled={updateStatus.isPending}
-                className="flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition disabled:opacity-60"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "#dc2626",
-                  background: "var(--bg-elevated)",
-                }}
-              >
-                Mark Incomplete
-              </button>
-              <button
-                onClick={handleNeedsRebook}
-                disabled={updateStatus.isPending}
-                className="flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition disabled:opacity-60"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "#d97706",
-                  background: "var(--bg-elevated)",
-                }}
-              >
-                Needs Rebook
-              </button>
-            </div>
+            <button
+              onClick={handleNeedsRebook}
+              disabled={updateStatus.isPending}
+              className="w-full rounded-xl border px-4 py-2.5 text-sm font-medium transition disabled:opacity-60"
+              style={{
+                borderColor: "var(--border)",
+                color: "#d97706",
+                background: "var(--bg-elevated)",
+              }}
+            >
+              Needs Rebook
+            </button>
           )}
         </div>
       )}
 
-      {/* Completion modal */}
-      {showCompleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div
-            className="mx-4 w-full max-w-sm rounded-xl border p-6 shadow-xl"
-            style={{
-              background: "var(--bg-elevated)",
-              borderColor: "var(--border)",
-            }}
-          >
-            <h2
-              className="mb-4 text-lg font-semibold"
-              style={{ color: "var(--t1)" }}
-            >
-              Complete Job
-            </h2>
-            <p className="mb-3 text-sm" style={{ color: "var(--t2)" }}>
-              How did the job go?
-            </p>
-
-            <div className="space-y-2">
-              {(
-                [
-                  ["FIXED", "Fixed / Resolved"],
-                  ["NEEDS_FOLLOWUP", "Needs Follow-up"],
-                  ["CUSTOMER_DECLINED", "Customer Declined"],
-                ] as const
-              ).map(([value, label]) => (
-                <label
-                  key={value}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg border p-3"
-                  style={{
-                    borderColor:
-                      completionNote === value
-                        ? "#22c55e"
-                        : "var(--border)",
-                    background:
-                      completionNote === value
-                        ? "#f0fdf4"
-                        : "transparent",
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="completionNote"
-                    value={value}
-                    checked={completionNote === value}
-                    onChange={() => setCompletionNote(value)}
-                    className="sr-only"
-                  />
-                  <span className="text-sm font-medium" style={{ color: "var(--t1)" }}>
-                    {label}
-                  </span>
-                </label>
-              ))}
-            </div>
-
-            <div className="mt-5 flex gap-2">
-              <button
-                onClick={() => setShowCompleteModal(false)}
-                className="flex-1 rounded-lg border px-4 py-2 text-sm font-medium"
-                style={{
-                  borderColor: "var(--border)",
-                  color: "var(--t2)",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleComplete}
-                disabled={updateStatus.isPending}
-                className="flex-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-60"
-              >
-                {updateStatus.isPending ? "Saving..." : "Complete"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Completion flow */}
+      {showCompletionFlow && (
+        <JobDetailCompletionFlow
+          jobId={id}
+          onClose={() => setShowCompletionFlow(false)}
+          onComplete={() => void refetch()}
+        />
       )}
+    </div>
+  );
+}
+
+// Time dropdown options: sub-hour granularity (10m increments) then 30m increments up to 9 hours
+const TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540].map((mins) => {
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  const label = hrs > 0 ? (rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`) : `${mins}m`;
+  return { value: mins, label };
+});
+
+type CompletionStep = "ask_fixed" | "scenario_1" | "scenario_2" | "scenario_3" | "follow_up_form";
+
+function JobDetailCompletionFlow({
+  jobId,
+  onClose,
+  onComplete,
+}: {
+  jobId: string;
+  onClose: () => void;
+  onComplete: () => void;
+}) {
+  const { data: followUpStatus, isLoading: checkingFollowUp } =
+    api.techDashboard.checkFollowUpStatus.useQuery({ jobId });
+
+  const completeJob = api.techDashboard.completeJobWithOutcome.useMutation({
+    onSuccess: () => { onComplete(); onClose(); },
+  });
+
+  const [step, setStep] = useState<CompletionStep | null>(null);
+  const [description, setDescription] = useState("");
+  const [lowMinutes, setLowMinutes] = useState(60);
+  const [highMinutes, setHighMinutes] = useState(120);
+  const [needsParts, setNeedsParts] = useState(false);
+  const [partsDescription, setPartsDescription] = useState("");
+  const [partsExpectedDate, setPartsExpectedDate] = useState("");
+  const [partsNotes, setPartsNotes] = useState("");
+  const [needsAdditionalTech, setNeedsAdditionalTech] = useState(false);
+  const [additionalTechReason, setAdditionalTechReason] = useState("");
+
+  const currentStep = step ?? (
+    checkingFollowUp ? null :
+    followUpStatus?.isReturnVisit ? "scenario_3" : "ask_fixed"
+  );
+
+  const spreadValid = (highMinutes - lowMinutes) >= 0 && (highMinutes - lowMinutes) <= 180;
+  const highValid = highMinutes <= 540;
+
+  const handleComplete = (
+    outcome: "FIXED" | "NEEDS_FOLLOWUP" | "CUSTOMER_DECLINED",
+    requestReview: boolean,
+  ) => {
+    const followUp = outcome === "NEEDS_FOLLOWUP" ? {
+      description,
+      estimatedLowMinutes: lowMinutes,
+      estimatedHighMinutes: highMinutes,
+      needsParts,
+      partsDescription: needsParts ? partsDescription : undefined,
+      partsExpectedDate: needsParts && partsExpectedDate ? partsExpectedDate : undefined,
+      partsNotes: needsParts && partsNotes ? partsNotes : undefined,
+      needsAdditionalTech,
+      additionalTechReason: needsAdditionalTech && additionalTechReason ? additionalTechReason : undefined,
+    } : undefined;
+    completeJob.mutate({ jobId, outcome, requestReview, followUp });
+  };
+
+  if (checkingFollowUp || currentStep === null) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div
+        className="mx-4 w-full max-w-sm rounded-xl border p-6 shadow-xl"
+        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)" }}
+      >
+        {completeJob.isError && (
+          <div className="mb-3 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "#ef4444", color: "#ef4444" }}>
+            {completeJob.error.message}
+          </div>
+        )}
+
+        {currentStep === "ask_fixed" && (
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold" style={{ color: "var(--t1)" }}>Did you fix the issue?</h2>
+            <div className="flex gap-2">
+              <button onClick={() => setStep("scenario_2")} className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white" style={{ background: "#16a34a" }}>Yes</button>
+              <button onClick={() => setStep("scenario_1")} className="flex-1 rounded-lg border-2 px-4 py-2.5 text-sm font-semibold" style={{ borderColor: "#f59e0b", color: "#92400e" }}>No</button>
+            </div>
+            <button onClick={onClose} className="w-full text-center text-xs" style={{ color: "var(--t3)" }}>Cancel</button>
+          </div>
+        )}
+
+        {currentStep === "scenario_1" && (
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold" style={{ color: "var(--t1)" }}>What happens next?</h2>
+            <button onClick={() => setStep("follow_up_form")} className="w-full rounded-lg border-2 px-4 py-2.5 text-sm font-semibold" style={{ borderColor: "#f59e0b", color: "#92400e" }}>Needs Follow-Up</button>
+            <button onClick={() => handleComplete("CUSTOMER_DECLINED", false)} disabled={completeJob.isPending} className="w-full rounded-lg border px-4 py-2.5 text-sm font-medium disabled:opacity-60" style={{ borderColor: "var(--border)", color: "var(--t2)" }}>
+              {completeJob.isPending ? "Completing..." : "Customer Declined \u2014 Mark Complete"}
+            </button>
+            <button onClick={() => setStep("ask_fixed")} className="w-full text-center text-xs" style={{ color: "var(--t3)" }}>Back</button>
+          </div>
+        )}
+
+        {(currentStep === "scenario_2" || currentStep === "scenario_3") && (
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold" style={{ color: "var(--t1)" }}>Request a review?</h2>
+            <button onClick={() => handleComplete("FIXED", true)} disabled={completeJob.isPending} className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ background: "#16a34a" }}>
+              {completeJob.isPending ? "Completing..." : "Complete with Review Request"}
+            </button>
+            <button onClick={() => handleComplete("FIXED", false)} disabled={completeJob.isPending} className="w-full rounded-lg border px-4 py-2.5 text-sm font-medium disabled:opacity-60" style={{ borderColor: "var(--border)", color: "var(--t2)" }}>
+              {completeJob.isPending ? "Completing..." : "Complete without Review"}
+            </button>
+            <button onClick={() => currentStep === "scenario_2" ? setStep("ask_fixed") : onClose()} className="w-full text-center text-xs" style={{ color: "var(--t3)" }}>
+              {currentStep === "scenario_2" ? "Back" : "Cancel"}
+            </button>
+          </div>
+        )}
+
+        {currentStep === "follow_up_form" && (
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold" style={{ color: "var(--t1)" }}>Follow-Up Details</h2>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--t1)" }} placeholder="What needs to be done on the return visit?" />
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-medium" style={{ color: "var(--t2)" }}>Low Estimate</label>
+                <select value={lowMinutes} onChange={(e) => setLowMinutes(Number(e.target.value))} className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--t1)" }}>
+                  {TIME_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-medium" style={{ color: "var(--t2)" }}>High Estimate</label>
+                <select value={highMinutes} onChange={(e) => setHighMinutes(Number(e.target.value))} className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--t1)" }}>
+                  {TIME_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+              </div>
+            </div>
+            {!spreadValid && <p className="text-xs" style={{ color: "#ef4444" }}>Spread cannot exceed 3 hours.</p>}
+            {!highValid && <p className="text-xs" style={{ color: "#ef4444" }}>High estimate cannot exceed 9 hours.</p>}
+            <p className="text-xs" style={{ color: "var(--t3)" }}>The gap between your low and high estimate determines the customer&apos;s arrival window. A tighter estimate means a tighter window for the next customer.</p>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={needsParts} onChange={(e) => setNeedsParts(e.target.checked)} className="h-4 w-4 rounded border" />
+              <span className="text-sm" style={{ color: "var(--t2)" }}>Parts needed</span>
+            </label>
+            {needsParts && (
+              <div className="space-y-2 pl-6">
+                <input value={partsDescription} onChange={(e) => setPartsDescription(e.target.value)} className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--t1)" }} placeholder="Describe parts needed..." />
+                <div>
+                  <label className="mb-1 block text-xs font-medium" style={{ color: "var(--t2)" }}>Expected arrival date</label>
+                  <input type="date" value={partsExpectedDate} onChange={(e) => setPartsExpectedDate(e.target.value)} className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--t1)" }} />
+                </div>
+                <input value={partsNotes} onChange={(e) => setPartsNotes(e.target.value)} className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--t1)" }} placeholder="Additional parts notes..." />
+              </div>
+            )}
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={needsAdditionalTech} onChange={(e) => setNeedsAdditionalTech(e.target.checked)} className="h-4 w-4 rounded border" />
+              <span className="text-sm" style={{ color: "var(--t2)" }}>Needs additional technician</span>
+            </label>
+            {needsAdditionalTech && (
+              <input value={additionalTechReason} onChange={(e) => setAdditionalTechReason(e.target.value)} className="w-full rounded-lg border px-3 py-2 text-sm pl-6" style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--t1)" }} placeholder="Why is a second tech needed?" />
+            )}
+            <button onClick={() => handleComplete("NEEDS_FOLLOWUP", false)} disabled={completeJob.isPending || !description.trim() || !spreadValid || !highValid} className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ background: "#f59e0b" }}>
+              {completeJob.isPending ? "Completing..." : "Submit Follow-Up & Complete"}
+            </button>
+            <button onClick={() => setStep("scenario_1")} className="w-full text-center text-xs" style={{ color: "var(--t3)" }}>Back</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

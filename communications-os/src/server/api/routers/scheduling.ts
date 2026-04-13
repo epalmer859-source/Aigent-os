@@ -55,8 +55,9 @@ import {
   startMyDay,
 } from "~/engine/scheduling/pause-manual-controls";
 
-import { createCommunicationWiringDb, createPauseManualDb, createAccountabilityDb } from "~/engine/scheduling/prisma-scheduling-adapter";
+import { createCommunicationWiringDb, createPauseManualDb, createAccountabilityDb, createWindowRecalculatorDb } from "~/engine/scheduling/prisma-scheduling-adapter";
 import { detectGpsMismatch, detectFastCompletion, persistGpsMismatch, persistFastCompletion } from "~/engine/scheduling/transition-hooks";
+import { recalculateDownstreamWindows } from "~/engine/scheduling/window-recalculator";
 
 // ── Shared clocks ──────────────────────────────────────────────
 
@@ -260,6 +261,34 @@ export const schedulingRouter = createTRPCRouter({
         }
       }
 
+      // Window recalculation: on ARRIVED, recalculate downstream windows using actual arrival time
+      if (input.newStatus === "ARRIVED") {
+        const windowRecalcDb = createWindowRecalculatorDb(ctx.db);
+        const job = await ctx.db.scheduling_jobs.findUnique({
+          where: { id: input.jobId },
+          select: { scheduled_date: true },
+        });
+        if (job?.scheduled_date) {
+          recalculateDownstreamWindows(
+            input.technicianId,
+            input.jobId,
+            clock.now(),
+            job.scheduled_date,
+            windowRecalcDb,
+          ).then((recalcResult) => {
+            if (recalcResult.notifications.length > 0) {
+              for (const n of recalcResult.notifications) {
+                const purpose = n.reason === "two_jobs_away" ? "scheduling_arrival" : "scheduling_arrival";
+                console.log(`[scheduling:transitionJob] window recalc notification: job=${n.jobId} reason=${n.reason}`);
+                // TODO: Queue customer notification SMS for window changes
+              }
+            }
+          }).catch((err) => {
+            console.error(`[scheduling:transitionJob] window recalculation failed for ${input.jobId}:`, err);
+          });
+        }
+      }
+
       // F19: Suspiciously fast completion flagging + persistence on COMPLETED
       let fastCompletion: ReturnType<typeof detectFastCompletion> | undefined;
       if (
@@ -313,6 +342,36 @@ export const schedulingRouter = createTRPCRouter({
               });
             }
           }
+        }
+      }
+
+      // Window recalculation: on COMPLETED, recalculate downstream windows
+      // Baseline = current time + V1 drive time (15 min) to next job
+      if (input.newStatus === "COMPLETED") {
+        const windowRecalcDb = createWindowRecalculatorDb(ctx.db);
+        const job = await ctx.db.scheduling_jobs.findUnique({
+          where: { id: input.jobId },
+          select: { scheduled_date: true },
+        });
+        if (job?.scheduled_date) {
+          const driveToNextMs = 15 * 60 * 1000; // V1 hardcoded
+          const baselineArrival = new Date(clock.now().getTime() + driveToNextMs);
+          recalculateDownstreamWindows(
+            input.technicianId,
+            input.jobId,
+            baselineArrival,
+            job.scheduled_date,
+            windowRecalcDb,
+          ).then((recalcResult) => {
+            if (recalcResult.notifications.length > 0) {
+              for (const n of recalcResult.notifications) {
+                console.log(`[scheduling:transitionJob] window recalc notification: job=${n.jobId} reason=${n.reason}`);
+                // TODO: Queue customer notification SMS for window changes
+              }
+            }
+          }).catch((err) => {
+            console.error(`[scheduling:transitionJob] window recalculation failed for ${input.jobId}:`, err);
+          });
         }
       }
 

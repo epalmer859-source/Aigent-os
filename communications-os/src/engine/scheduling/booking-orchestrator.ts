@@ -38,6 +38,8 @@ export interface BookingRequest {
   addressText: string;
   serviceType: string;
   jobNotes?: string | null;
+  windowStart?: Date | null;
+  windowEnd?: Date | null;
 }
 
 export type BookingOutcome =
@@ -65,6 +67,8 @@ export interface BookingOrchestratorDb {
     addressText: string;
     serviceType: string;
     jobNotes?: string | null;
+    windowStart?: Date | null;
+    windowEnd?: Date | null;
   }): Promise<void>;
 
   /** Create a scheduling_events audit row. */
@@ -166,6 +170,8 @@ export async function bookJob(
       addressText: request.addressText,
       serviceType: request.serviceType,
       jobNotes: request.jobNotes ?? null,
+      windowStart: request.windowStart ?? null,
+      windowEnd: request.windowEnd ?? null,
     });
 
     // 4. Create audit event

@@ -20,6 +20,7 @@ const VALID_STATES_FOR_PURPOSE: Record<SchedulingMessagePurpose, ReadonlySet<Sch
   scheduling_confirmation: new Set(["NOT_STARTED"]),
   scheduling_morning_reminder: new Set(["NOT_STARTED"]),
   scheduling_en_route: new Set(["EN_ROUTE"]),
+  scheduling_arrival: new Set(["ARRIVED", "IN_PROGRESS"]),
   scheduling_completion: new Set(["COMPLETED"]),
   scheduling_delay_notice: new Set(["NOT_STARTED", "EN_ROUTE"]),
   scheduling_window_change: new Set(["NOT_STARTED", "EN_ROUTE"]),
@@ -29,6 +30,8 @@ const VALID_STATES_FOR_PURPOSE: Record<SchedulingMessagePurpose, ReadonlySet<Sch
   scheduling_tech_estimate_prompt: new Set(["EN_ROUTE", "ARRIVED", "IN_PROGRESS"]),
   scheduling_tech_estimate_reminder: new Set(["ARRIVED", "IN_PROGRESS"]),
   scheduling_completion_note_prompt: new Set(["COMPLETED", "INCOMPLETE"]),
+  scheduling_review_request: new Set(["COMPLETED"]),
+  scheduling_followup_outreach: new Set(["COMPLETED"]),
   scheduling_sick_tech_notice: new Set(["NOT_STARTED", "NEEDS_REBOOK"]),
 };
 

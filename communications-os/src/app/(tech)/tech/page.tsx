@@ -479,13 +479,14 @@ function JobCard({
 }: {
   job: any;
   position: number;
-  onStatusChange: (status: "NOT_STARTED" | "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "COMPLETED" | "INCOMPLETE" | "NEEDS_REBOOK") => void;
+  onStatusChange: (status: "NOT_STARTED" | "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "NEEDS_REBOOK") => void;
   isUpdating: boolean;
   isNextInQueue?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showDelayOptions, setShowDelayOptions] = useState(false);
   const [selectedDelay, setSelectedDelay] = useState<number | null>(null);
+  const [showCompletionFlow, setShowCompletionFlow] = useState(false);
   const statusInfo = STATUS_COLORS[job.status as string] ?? STATUS_COLORS.NOT_STARTED!;
   const nextStatus = NEXT_STATUS[job.status as string];
   const actionLabel = nextStatus ? ACTION_LABELS[nextStatus] : undefined;
@@ -717,24 +718,13 @@ function JobCard({
               </button>
             )}
             {job.status === "IN_PROGRESS" && (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onStatusChange("COMPLETED"); }}
-                  disabled={isUpdating}
-                  className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
-                  style={{ background: "#16a34a" }}
-                >
-                  {isUpdating ? "Updating..." : "Complete Job"}
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onStatusChange("INCOMPLETE"); }}
-                  disabled={isUpdating}
-                  className="rounded-lg border px-4 py-2.5 text-sm font-medium transition disabled:opacity-60"
-                  style={{ borderColor: "#ef4444", color: "#ef4444" }}
-                >
-                  Incomplete
-                </button>
-              </>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowCompletionFlow(true); }}
+                className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
+                style={{ background: "#16a34a" }}
+              >
+                Complete Job
+              </button>
             )}
             {(job.status === "NOT_STARTED" && !isNextInQueue) && (
               <p className="w-full text-center text-xs" style={{ color: "var(--t3)" }}>
@@ -742,6 +732,369 @@ function JobCard({
               </p>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Completion flow modal */}
+      {showCompletionFlow && (
+        <CompletionFlow
+          jobId={job.id}
+          onClose={() => setShowCompletionFlow(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Completion Flow ───────────────────────────────────────────
+
+// Time dropdown options: sub-hour granularity (10m increments) then 30m increments up to 9 hours
+const TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540].map((mins) => {
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  const label = hrs > 0
+    ? rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`
+    : `${mins}m`;
+  return { value: mins, label };
+});
+
+type CompletionStep =
+  | "ask_fixed"        // "Did you fix the issue on site?"
+  | "scenario_1"       // First visit, can't fix → follow-up panel
+  | "scenario_2"       // First visit, fixed → review choice
+  | "scenario_3"       // Return visit → review choice
+  | "follow_up_form";  // Needs Follow-Up details form
+
+function CompletionFlow({ jobId, onClose }: { jobId: string; onClose: () => void }) {
+  const utils = api.useUtils();
+  const { data: followUpStatus, isLoading: checkingFollowUp } =
+    api.techDashboard.checkFollowUpStatus.useQuery({ jobId });
+
+  const completeJob = api.techDashboard.completeJobWithOutcome.useMutation({
+    onSuccess: () => {
+      void utils.techDashboard.myJobs.invalidate();
+      onClose();
+    },
+  });
+
+  // Follow-up form state
+  const [description, setDescription] = useState("");
+  const [lowMinutes, setLowMinutes] = useState(60);
+  const [highMinutes, setHighMinutes] = useState(120);
+  const [needsParts, setNeedsParts] = useState(false);
+  const [partsDescription, setPartsDescription] = useState("");
+  const [partsExpectedDate, setPartsExpectedDate] = useState("");
+  const [partsNotes, setPartsNotes] = useState("");
+  const [needsAdditionalTech, setNeedsAdditionalTech] = useState(false);
+  const [additionalTechReason, setAdditionalTechReason] = useState("");
+
+  // Step state
+  const [step, setStep] = useState<CompletionStep | null>(null);
+
+  // Determine initial step based on follow-up status
+  const currentStep = step ?? (
+    checkingFollowUp ? null :
+    followUpStatus?.isReturnVisit ? "scenario_3" :
+    "ask_fixed"
+  );
+
+  // Validate time spread
+  const spreadMinutes = highMinutes - lowMinutes;
+  const spreadValid = spreadMinutes >= 0 && spreadMinutes <= 180;
+  const highValid = highMinutes <= 540;
+
+  const handleComplete = (
+    outcome: "FIXED" | "NEEDS_FOLLOWUP" | "CUSTOMER_DECLINED",
+    requestReview: boolean,
+  ) => {
+    const followUp = outcome === "NEEDS_FOLLOWUP" ? {
+      description,
+      estimatedLowMinutes: lowMinutes,
+      estimatedHighMinutes: highMinutes,
+      needsParts,
+      partsDescription: needsParts ? partsDescription : undefined,
+      partsExpectedDate: needsParts && partsExpectedDate ? partsExpectedDate : undefined,
+      partsNotes: needsParts && partsNotes ? partsNotes : undefined,
+      needsAdditionalTech,
+      additionalTechReason: needsAdditionalTech && additionalTechReason ? additionalTechReason : undefined,
+    } : undefined;
+
+    completeJob.mutate({
+      jobId,
+      outcome,
+      requestReview,
+      followUp,
+    });
+  };
+
+  if (checkingFollowUp || currentStep === null) {
+    return (
+      <div
+        className="border-t px-4 py-6 text-center"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <p className="text-sm" style={{ color: "var(--t3)" }}>Loading...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="border-t px-4 py-4"
+      style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.02)" }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {completeJob.isError && (
+        <div className="mb-3 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "#ef4444", color: "#ef4444", background: "rgba(239,68,68,0.05)" }}>
+          {completeJob.error.message}
+        </div>
+      )}
+
+      {/* Step: Did you fix the issue? */}
+      {currentStep === "ask_fixed" && (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold" style={{ color: "var(--t1)" }}>
+            Did you fix the issue on site?
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setStep("scenario_2")}
+              className="flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
+              style={{ background: "#16a34a" }}
+            >
+              Yes
+            </button>
+            <button
+              onClick={() => setStep("scenario_1")}
+              className="flex-1 rounded-lg border-2 px-4 py-2.5 text-sm font-semibold transition"
+              style={{ borderColor: "#f59e0b", color: "#92400e", background: "rgba(245,158,11,0.05)" }}
+            >
+              No
+            </button>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full text-center text-xs font-medium"
+            style={{ color: "var(--t3)" }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Scenario 1: First visit, can't fix */}
+      {currentStep === "scenario_1" && (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold" style={{ color: "var(--t1)" }}>
+            What happens next?
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setStep("follow_up_form")}
+              className="w-full rounded-lg border-2 px-4 py-2.5 text-sm font-semibold transition"
+              style={{ borderColor: "#f59e0b", color: "#92400e", background: "rgba(245,158,11,0.05)" }}
+            >
+              Needs Follow-Up
+            </button>
+            <button
+              onClick={() => handleComplete("CUSTOMER_DECLINED", false)}
+              disabled={completeJob.isPending}
+              className="w-full rounded-lg border px-4 py-2.5 text-sm font-medium transition disabled:opacity-60"
+              style={{ borderColor: "var(--border)", color: "var(--t2)" }}
+            >
+              {completeJob.isPending ? "Completing..." : "Customer Declined \u2014 Mark Complete"}
+            </button>
+          </div>
+          <button
+            onClick={() => setStep("ask_fixed")}
+            className="w-full text-center text-xs font-medium"
+            style={{ color: "var(--t3)" }}
+          >
+            Back
+          </button>
+        </div>
+      )}
+
+      {/* Scenario 2 & 3: Fixed / Return visit → review choice */}
+      {(currentStep === "scenario_2" || currentStep === "scenario_3") && (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold" style={{ color: "var(--t1)" }}>
+            Request a review from the customer?
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => handleComplete("FIXED", true)}
+              disabled={completeJob.isPending}
+              className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
+              style={{ background: "#16a34a" }}
+            >
+              {completeJob.isPending ? "Completing..." : "Complete with Review Request"}
+            </button>
+            <button
+              onClick={() => handleComplete("FIXED", false)}
+              disabled={completeJob.isPending}
+              className="w-full rounded-lg border px-4 py-2.5 text-sm font-medium transition disabled:opacity-60"
+              style={{ borderColor: "var(--border)", color: "var(--t2)" }}
+            >
+              {completeJob.isPending ? "Completing..." : "Complete without Review"}
+            </button>
+          </div>
+          <button
+            onClick={() => currentStep === "scenario_2" ? setStep("ask_fixed") : onClose()}
+            className="w-full text-center text-xs font-medium"
+            style={{ color: "var(--t3)" }}
+          >
+            {currentStep === "scenario_2" ? "Back" : "Cancel"}
+          </button>
+        </div>
+      )}
+
+      {/* Follow-Up Form */}
+      {currentStep === "follow_up_form" && (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold" style={{ color: "var(--t1)" }}>
+            Follow-Up Details
+          </p>
+
+          {/* Description */}
+          <div>
+            <label className="mb-1 block text-xs font-medium" style={{ color: "var(--t2)" }}>
+              What needs to be done on the return visit?
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: "var(--border)", background: "var(--bg-elevated)", color: "var(--t1)" }}
+              placeholder="Describe the work needed..."
+            />
+          </div>
+
+          {/* Time range dropdowns */}
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="mb-1 block text-xs font-medium" style={{ color: "var(--t2)" }}>
+                Low Estimate
+              </label>
+              <select
+                value={lowMinutes}
+                onChange={(e) => setLowMinutes(Number(e.target.value))}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                style={{ borderColor: "var(--border)", background: "var(--bg-elevated)", color: "var(--t1)" }}
+              >
+                {TIME_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="mb-1 block text-xs font-medium" style={{ color: "var(--t2)" }}>
+                High Estimate
+              </label>
+              <select
+                value={highMinutes}
+                onChange={(e) => setHighMinutes(Number(e.target.value))}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                style={{ borderColor: "var(--border)", background: "var(--bg-elevated)", color: "var(--t1)" }}
+              >
+                {TIME_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {!spreadValid && (
+            <p className="text-xs" style={{ color: "#ef4444" }}>
+              Spread between low and high cannot exceed 3 hours.
+            </p>
+          )}
+          {!highValid && (
+            <p className="text-xs" style={{ color: "#ef4444" }}>
+              High estimate cannot exceed 9 hours.
+            </p>
+          )}
+          <p className="text-xs" style={{ color: "var(--t3)" }}>
+            The gap between your low and high estimate determines the customer&apos;s arrival window. A tighter estimate means a tighter window for the next customer.
+          </p>
+
+          {/* Parts needed */}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={needsParts}
+              onChange={(e) => setNeedsParts(e.target.checked)}
+              className="h-4 w-4 rounded border"
+            />
+            <span className="text-sm" style={{ color: "var(--t2)" }}>Parts needed</span>
+          </label>
+          {needsParts && (
+            <div className="space-y-2 pl-6">
+              <input
+                value={partsDescription}
+                onChange={(e) => setPartsDescription(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                style={{ borderColor: "var(--border)", background: "var(--bg-elevated)", color: "var(--t1)" }}
+                placeholder="Describe parts needed..."
+              />
+              <div>
+                <label className="mb-1 block text-xs font-medium" style={{ color: "var(--t2)" }}>
+                  Expected arrival date
+                </label>
+                <input
+                  type="date"
+                  value={partsExpectedDate}
+                  onChange={(e) => setPartsExpectedDate(e.target.value)}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  style={{ borderColor: "var(--border)", background: "var(--bg-elevated)", color: "var(--t1)" }}
+                />
+              </div>
+              <input
+                value={partsNotes}
+                onChange={(e) => setPartsNotes(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                style={{ borderColor: "var(--border)", background: "var(--bg-elevated)", color: "var(--t1)" }}
+                placeholder="Additional parts notes..."
+              />
+            </div>
+          )}
+
+          {/* Additional tech */}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={needsAdditionalTech}
+              onChange={(e) => setNeedsAdditionalTech(e.target.checked)}
+              className="h-4 w-4 rounded border"
+            />
+            <span className="text-sm" style={{ color: "var(--t2)" }}>Needs additional technician</span>
+          </label>
+          {needsAdditionalTech && (
+            <input
+              value={additionalTechReason}
+              onChange={(e) => setAdditionalTechReason(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 text-sm pl-6"
+              style={{ borderColor: "var(--border)", background: "var(--bg-elevated)", color: "var(--t1)" }}
+              placeholder="Why is a second tech needed?"
+            />
+          )}
+
+          {/* Submit */}
+          <button
+            onClick={() => handleComplete("NEEDS_FOLLOWUP", false)}
+            disabled={completeJob.isPending || !description.trim() || !spreadValid || !highValid}
+            className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
+            style={{ background: "#f59e0b" }}
+          >
+            {completeJob.isPending ? "Completing..." : "Submit Follow-Up & Complete Job"}
+          </button>
+          <button
+            onClick={() => setStep("scenario_1")}
+            className="w-full text-center text-xs font-medium"
+            style={{ color: "var(--t3)" }}
+          >
+            Back
+          </button>
         </div>
       )}
     </div>

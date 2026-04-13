@@ -306,11 +306,20 @@ function _buildLayer1(biz: BusinessConfigRecord): string {
   return lines.join("\n");
 }
 
+interface CustomerJobHistoryEntry {
+  date: string;
+  serviceType: string;
+  outcome: string | null;
+  techName: string;
+  hasPendingFollowUp: boolean;
+}
+
 function _buildLayer2(
   conv: ConversationDataRecord,
   customer: CustomerDataRecord,
   biz: BusinessConfigRecord,
   channel: string | undefined,
+  jobHistory?: CustomerJobHistoryEntry[],
 ): string {
   const lines: string[] = [
     "\n=== CONVERSATION CONTEXT ===",
@@ -329,6 +338,24 @@ function _buildLayer2(
   }
   if (conv.requestedDataFields && conv.requestedDataFields.length > 0) {
     lines.push(`Still waiting for: ${conv.requestedDataFields.join(", ")}`);
+  }
+
+  // Customer job history — past scheduling jobs for context
+  if (jobHistory && jobHistory.length > 0) {
+    lines.push("\n-- Customer Job History --");
+    for (const entry of jobHistory) {
+      const outcome = entry.outcome
+        ? entry.outcome === "FIXED" ? "Fixed"
+        : entry.outcome === "NEEDS_FOLLOWUP" ? "Needs follow-up"
+        : entry.outcome === "CUSTOMER_DECLINED" ? "Customer declined"
+        : entry.outcome
+        : "No outcome recorded";
+      let line = `  ${entry.date}: ${entry.serviceType} with ${entry.techName} — ${outcome}`;
+      if (entry.hasPendingFollowUp) {
+        line += " (follow-up pending)";
+      }
+      lines.push(line);
+    }
   }
 
   // AI disclosure required for SMS; not required for web_chat.
@@ -552,9 +579,38 @@ async function _assemblePromptFromDb(context: PromptContext): Promise<AssembledP
     aiDisclosureSentAt: customerRow.ai_disclosure_sent_at ?? null,
   };
 
+  // Fetch customer's past scheduling jobs (last 10, most recent first).
+  const pastJobs = await db.scheduling_jobs.findMany({
+    where: {
+      customer_id: context.customerId,
+      status: { in: ["COMPLETED", "INCOMPLETE"] },
+    },
+    orderBy: { completed_at: "desc" },
+    take: 10,
+    include: {
+      service_types: { select: { name: true } },
+      technicians: { select: { name: true } },
+      follow_up_requests_origin: {
+        where: { status: "pending" },
+        select: { id: true },
+        take: 1,
+      },
+    },
+  });
+
+  const jobHistory: CustomerJobHistoryEntry[] = pastJobs.map((j) => ({
+    date: j.scheduled_date instanceof Date
+      ? j.scheduled_date.toISOString().split("T")[0]!
+      : String(j.scheduled_date).split("T")[0]!,
+    serviceType: j.service_types?.name ?? "Service",
+    outcome: j.completion_note ?? null,
+    techName: j.technicians?.name ?? "Technician",
+    hasPendingFollowUp: j.follow_up_requests_origin.length > 0,
+  }));
+
   // Build all 4 layers.
   const layer1 = _buildLayer1(biz);
-  const layer2 = _buildLayer2(conv, customer, biz, context.channel);
+  const layer2 = _buildLayer2(conv, customer, biz, context.channel, jobHistory);
   const layer3Result = _buildLayer3(biz, conv, context.channel);
   const layer4 = _buildLayer4();
   const systemPrompt = [layer1, layer2, layer3Result.text, layer4].join("\n");

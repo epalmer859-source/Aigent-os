@@ -37,11 +37,21 @@ import type { QueuedJob } from "./queue-insertion";
 import type { TechCandidate } from "./tech-assignment";
 import type { Coordinates, OsrmServiceDeps } from "./osrm-service";
 import type { TimePreference } from "./capacity-math";
+import type { WindowRecalculatorDb, RecalcJob } from "./window-recalculator";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function dateToDateOnly(d: Date): Date {
   return new Date(d.toISOString().split("T")[0]!);
+}
+
+/** Format a Date as "H:MM AM/PM" for customer-facing display. */
+function formatTimeForCustomer(d: Date): string {
+  const h24 = d.getHours();
+  const m = d.getMinutes();
+  const period = h24 >= 12 ? "PM" : "AM";
+  const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+  return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
 }
 
 // ── PauseGuardDb ────────────────────────────────────────────────────────────
@@ -1100,6 +1110,8 @@ export function createCommunicationWiringDb(prisma: PrismaClient): Communication
           queue_position: true,
           technician_id: true,
           scheduled_date: true,
+          window_start: true,
+          window_end: true,
         },
       });
       if (!job) return null;
@@ -1112,20 +1124,26 @@ export function createCommunicationWiringDb(prisma: PrismaClient): Communication
         },
       });
 
-      // Position-based window estimates per blueprint
       const pos = job.queue_position;
       let windowStart: string | null = null;
       let windowEnd: string | null = null;
       let softEstimate: string | null = null;
 
-      if (pos <= 1) {
-        windowStart = "first thing in the morning";
-        windowEnd = "mid-morning";
-      } else if (pos === 2) {
-        windowStart = "late morning";
-        windowEnd = "early afternoon";
-      } else if (pos === 3) {
-        softEstimate = "afternoon";
+      if (job.window_start && job.window_end) {
+        // Use persisted window times — format as "H:MM AM/PM"
+        windowStart = formatTimeForCustomer(job.window_start);
+        windowEnd = formatTimeForCustomer(job.window_end);
+      } else {
+        // Fallback for jobs booked before window persistence
+        if (pos <= 1) {
+          windowStart = "first thing in the morning";
+          windowEnd = "mid-morning";
+        } else if (pos === 2) {
+          windowStart = "late morning";
+          windowEnd = "early afternoon";
+        } else if (pos === 3) {
+          softEstimate = "afternoon";
+        }
       }
 
       return {
@@ -1777,6 +1795,73 @@ export function createHeartbeatDb(): HeartbeatDb {
     },
     async getLastHeartbeat(workerName) {
       return heartbeatStore.get(workerName) ?? null;
+    },
+  };
+}
+
+// ── WindowRecalculatorDb ───────────────────────────────────────────────────
+
+export function createWindowRecalculatorDb(prisma: PrismaClient): WindowRecalculatorDb {
+  return {
+    async getJobsForTechOnDate(technicianId: string, date: Date): Promise<RecalcJob[]> {
+      const dateOnly = dateToDateOnly(date);
+      const nextDay = new Date(dateOnly);
+      nextDay.setDate(nextDay.getDate() + 1);
+
+      const jobs = await prisma.scheduling_jobs.findMany({
+        where: {
+          technician_id: technicianId,
+          scheduled_date: { gte: dateOnly, lt: nextDay },
+          status: { notIn: ["CANCELED"] },
+        },
+        orderBy: { queue_position: "asc" },
+        select: {
+          id: true,
+          customer_id: true,
+          queue_position: true,
+          estimated_duration_minutes: true,
+          window_start: true,
+          window_end: true,
+          status: true,
+          customers: { select: { display_name: true } },
+        },
+      });
+
+      return jobs.map((j) => ({
+        id: j.id,
+        customerId: j.customer_id,
+        customerName: j.customers?.display_name ?? null,
+        queuePosition: j.queue_position,
+        estimatedDurationMinutes: j.estimated_duration_minutes ?? 60,
+        driveTimeMinutes: 15, // V1 hardcoded
+        windowStart: j.window_start,
+        windowEnd: j.window_end,
+        status: j.status,
+      }));
+    },
+
+    async getFollowUpEstimates(jobId: string) {
+      const followUp = await prisma.follow_up_requests.findFirst({
+        where: { follow_up_job_id: jobId },
+        select: {
+          estimated_low_minutes: true,
+          estimated_high_minutes: true,
+        },
+      });
+      if (!followUp || followUp.estimated_low_minutes == null || followUp.estimated_high_minutes == null) {
+        return null;
+      }
+      return {
+        estimatedLowMinutes: followUp.estimated_low_minutes,
+        estimatedHighMinutes: followUp.estimated_high_minutes,
+      };
+    },
+
+    async updateJobWindow(jobId: string, windowStart: Date, windowEnd: Date) {
+      await prisma.scheduling_jobs.update({
+        where: { id: jobId },
+        data: { window_start: windowStart, window_end: windowEnd },
+      });
     },
   };
 }

@@ -120,9 +120,9 @@ export function parseCutoffTime(cutoff: string | null | undefined): number | nul
   return null;
 }
 
-/** Round minutes to nearest 15. */
+/** Round minutes UP to nearest 15. Never rounds down. */
 function roundTo15(minutes: number): number {
-  return Math.round(minutes / 15) * 15;
+  return Math.ceil(minutes / 15) * 15;
 }
 
 /** Format minutes-from-midnight as "H:MM AM/PM". */
@@ -139,6 +139,14 @@ function formatTime24(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+}
+
+/** Parse a slot time "HH:MM" string into a Date on the given scheduled date. */
+function parseSlotTime(hhMm: string, scheduledDate: Date): Date {
+  const [h, m] = hhMm.split(":").map(Number) as [number, number];
+  const d = new Date(scheduledDate);
+  d.setHours(h, m, 0, 0);
+  return d;
 }
 
 /** Format a date relative to today for slot labels. */
@@ -408,6 +416,10 @@ export async function bookSelectedSlot(
     lng: 0,
   };
 
+  // Convert slot window times (HH:MM) to Date objects for persistence
+  const windowStart = parseSlotTime(slot.windowStart, scheduledDate);
+  const windowEnd = parseSlotTime(slot.windowEnd, scheduledDate);
+
   const bookingRequest: BookingRequest = {
     jobId,
     businessId,
@@ -422,6 +434,8 @@ export async function bookSelectedSlot(
     addressText: input.addressText,
     serviceType: slot.serviceTypeId,
     jobNotes: input.serviceDescription || null,
+    windowStart,
+    windowEnd,
   };
 
   const outcome: BookingOutcome = await bookJob(
@@ -442,4 +456,244 @@ export async function bookSelectedSlot(
     scheduledDate,
     queuePosition: outcome.queuePosition,
   };
+}
+
+// ── Follow-Up Booking (Return Visits) ────────────────────────────────────────
+
+export interface FollowUpSlotGenerationInput {
+  businessId: string;
+  followUpRequestId: string;
+  estimatedLowMinutes: number;
+  estimatedHighMinutes: number;
+  serviceDescription: string;
+  availabilityPreference: string | null;
+  availabilityCutoffTime?: string | null;
+  /** If specified, prefer this tech (the one who did the original job). */
+  preferredTechnicianId?: string;
+}
+
+export interface FollowUpSlotGenerationDeps {
+  getTechCandidates: (businessId: string) => Promise<TechCandidate[]>;
+  getServiceTypeId: (businessId: string) => Promise<string>;
+  getQueueForTechDate: (technicianId: string, date: Date) => Promise<QueuedJob[]>;
+  capacityDb: CapacityDb;
+}
+
+/**
+ * Compute the capacity cost and window parameters for a follow-up visit.
+ *
+ * - Capacity cost = midpoint of low/high + drive time
+ * - High estimate determines which rule applies:
+ *     high ≤ 120 min  → Rule 2A: 2hr window, start = arrival + 1hr
+ *     high 121–240 min → Rule 2B: variable window based on spread
+ *     high > 240 min  → Rule 3: 3hr window, start = arrival + midpoint
+ */
+export function computeFollowUpCost(
+  estimatedLowMinutes: number,
+  estimatedHighMinutes: number,
+  driveTimeMinutes: number,
+): { midpointMinutes: number; totalCostMinutes: number; windowDurationMinutes: number; rule: "2A" | "2B" | "3" } {
+  const midpointMinutes = Math.round((estimatedLowMinutes + estimatedHighMinutes) / 2);
+  const totalCostMinutes = midpointMinutes + driveTimeMinutes;
+
+  let windowDurationMinutes: number;
+  let rule: "2A" | "2B" | "3";
+
+  if (estimatedHighMinutes <= 120) {
+    // Rule 2A: 2hr window
+    windowDurationMinutes = 120;
+    rule = "2A";
+  } else if (estimatedHighMinutes <= 240) {
+    // Rule 2B: variable based on spread
+    const spread = estimatedHighMinutes - estimatedLowMinutes;
+    if (spread <= 60) {
+      windowDurationMinutes = 120; // exactly 2hr, no drive, no buffer
+    } else {
+      windowDurationMinutes = Math.max(120, spread + driveTimeMinutes + 15);
+    }
+    rule = "2B";
+  } else {
+    // Rule 3: 3hr window
+    windowDurationMinutes = 180;
+    rule = "3";
+  }
+
+  return { midpointMinutes, totalCostMinutes, windowDurationMinutes, rule };
+}
+
+/**
+ * Generate available slots for a follow-up (return visit) booking.
+ *
+ * Uses the midpoint of tech's low/high estimate as capacity cost.
+ * Preferred technician (from original job) is listed first when available.
+ */
+export async function generateFollowUpSlots(
+  input: FollowUpSlotGenerationInput,
+  deps: FollowUpSlotGenerationDeps,
+): Promise<SlotGenerationResult> {
+  const {
+    businessId,
+    estimatedLowMinutes,
+    estimatedHighMinutes,
+    availabilityPreference,
+    availabilityCutoffTime,
+  } = input;
+
+  const [techs, serviceTypeId] = await Promise.all([
+    deps.getTechCandidates(businessId),
+    deps.getServiceTypeId(businessId),
+  ]);
+
+  if (techs.length === 0) {
+    return { success: false, reason: "No technicians configured for this business." };
+  }
+
+  const driveTimeMinutes = 15; // V1 hardcoded, same as diagnostic
+  const { totalCostMinutes, windowDurationMinutes, rule } = computeFollowUpCost(
+    estimatedLowMinutes,
+    estimatedHighMinutes,
+    driveTimeMinutes,
+  );
+  const midpointMinutes = Math.round((estimatedLowMinutes + estimatedHighMinutes) / 2);
+
+  const serviceTypeName = "Follow-Up";
+  const timePreference = parseTimePreference(availabilityPreference);
+  const cutoffMinutes = parseCutoffTime(availabilityCutoffTime) ?? 720;
+
+  const today = new Date();
+  const now = today;
+  const slots: AvailableSlot[] = [];
+  let slotIndex = 1;
+
+  // Collect next 5 business days
+  const businessDays: Date[] = [];
+  let dayOffset = 0;
+  while (businessDays.length < 5 && dayOffset < 14) {
+    const candidate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    candidate.setDate(candidate.getDate() + dayOffset);
+    if (!isWeekend(candidate)) {
+      businessDays.push(candidate);
+    }
+    dayOffset++;
+  }
+
+  // Sort techs: preferred tech first
+  const sortedTechs = input.preferredTechnicianId
+    ? [...techs].sort((a, b) => {
+        if (a.id === input.preferredTechnicianId) return -1;
+        if (b.id === input.preferredTechnicianId) return 1;
+        return 0;
+      })
+    : techs;
+
+  for (const date of businessDays) {
+    for (const tech of sortedTechs) {
+      if (!tech.isActive) continue;
+
+      const cap = await checkCapacity(
+        tech.id,
+        date,
+        totalCostMinutes,
+        timePreference,
+        deps.capacityDb,
+      );
+      if (!cap.fits) continue;
+
+      const queue = await deps.getQueueForTechDate(tech.id, date);
+      const windows = computeAvailableWindows(queue, tech, totalCostMinutes);
+      if (windows.length === 0) continue;
+
+      const lunchStart = parseHHMM(tech.lunchStart);
+
+      for (const window of windows) {
+        const rawStart = window.startMinutes;
+
+        // Window start depends on which rule applies:
+        //   Rule 2A: 1 hour after tech arrives (at this job)
+        //   Rule 2B: tech's low estimate after arrival
+        //   Rule 3:  midpoint of low/high after arrival
+        let windowStartOffset: number;
+        if (rule === "2A") {
+          windowStartOffset = 60; // 1 hour
+        } else if (rule === "2B") {
+          windowStartOffset = estimatedLowMinutes;
+        } else {
+          windowStartOffset = midpointMinutes;
+        }
+
+        const windowStart = roundTo15(rawStart + windowStartOffset);
+        const windowEnd = roundTo15(windowStart + windowDurationMinutes);
+
+        // Filter: must fit within the working day
+        const workEnd = parseHHMM(tech.workingHoursEnd) + (tech.overtimeCapMinutes ?? 0);
+        if (windowEnd > workEnd) continue;
+
+        // Filter by time preference
+        if (timePreference === "MORNING" && windowEnd > cutoffMinutes) continue;
+        if (timePreference === "AFTERNOON" && windowStart < cutoffMinutes) continue;
+
+        const dateLabel = formatDateLabel(date, now);
+        const label = `${dateLabel} ${formatTime(windowStart)} – ${formatTime(windowEnd)} with ${tech.name}`;
+
+        slots.push({
+          index: slotIndex++,
+          technicianId: tech.id,
+          techName: tech.name,
+          date: date.toISOString().split("T")[0]!,
+          queuePosition: window.queuePosition,
+          windowStart: formatTime24(windowStart),
+          windowEnd: formatTime24(windowEnd),
+          label,
+          totalCostMinutes,
+          serviceTypeId,
+          serviceTypeName,
+          timePreference,
+        });
+      }
+    }
+  }
+
+  // Sort by date then window start
+  slots.sort((a, b) => {
+    const dateCompare = a.date.localeCompare(b.date);
+    if (dateCompare !== 0) return dateCompare;
+    return a.windowStart.localeCompare(b.windowStart);
+  });
+
+  const MAX_SLOTS = 10;
+  if (slots.length > MAX_SLOTS) {
+    slots.length = MAX_SLOTS;
+  }
+  slots.forEach((s, i) => { s.index = i + 1; });
+
+  if (slots.length === 0) {
+    return { success: false, reason: "No available time slots found in the next 5 business days." };
+  }
+
+  return { success: true, slots, serviceTypeId, serviceTypeName, totalCostMinutes };
+}
+
+export interface BookFollowUpSlotInput extends BookSlotInput {
+  followUpRequestId: string;
+}
+
+export interface BookFollowUpSlotDeps extends BookSlotDeps {
+  linkFollowUpJob: (followUpRequestId: string, jobId: string) => Promise<void>;
+}
+
+/**
+ * Book a follow-up slot and link it to the follow_up_requests record.
+ */
+export async function bookFollowUpSlot(
+  input: BookFollowUpSlotInput,
+  deps: BookFollowUpSlotDeps,
+): Promise<BookSlotResult> {
+  const result = await bookSelectedSlot(input, deps);
+
+  if (result.booked) {
+    // Link the new job to the follow_up_requests record
+    await deps.linkFollowUpJob(input.followUpRequestId, result.jobId);
+  }
+
+  return result;
 }

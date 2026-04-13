@@ -36,6 +36,7 @@ export type SchedulingMessagePurpose =
   | "scheduling_confirmation"
   | "scheduling_morning_reminder"
   | "scheduling_en_route"
+  | "scheduling_arrival"
   | "scheduling_completion"
   | "scheduling_delay_notice"
   | "scheduling_window_change"
@@ -45,6 +46,8 @@ export type SchedulingMessagePurpose =
   | "scheduling_tech_estimate_prompt"
   | "scheduling_tech_estimate_reminder"
   | "scheduling_completion_note_prompt"
+  | "scheduling_review_request"
+  | "scheduling_followup_outreach"
   | "scheduling_sick_tech_notice";
 
 export type MessageChannel = "sms" | "email" | "web_chat";
@@ -173,11 +176,14 @@ const QUIET_HOURS_RESTRICTED: Set<SchedulingMessagePurpose> = new Set([
   "scheduling_completion",
   "scheduling_rebook_notice",
   "scheduling_pull_forward_offer",
+  "scheduling_review_request",
+  "scheduling_followup_outreach",
 ]);
 
 const URGENT_PURPOSES: Set<SchedulingMessagePurpose> = new Set([
   "scheduling_confirmation",
   "scheduling_en_route",
+  "scheduling_arrival",
   "scheduling_delay_notice",
   "scheduling_window_change",
   "scheduling_pull_forward_accepted",
@@ -249,6 +255,12 @@ export function buildCannedTemplate(purpose: SchedulingMessagePurpose): CannedTe
         template: "Your technician is on the way! Estimated arrival in about {etaMinutes} minutes.",
         variables: ["etaMinutes"],
       };
+    case "scheduling_arrival":
+      return {
+        purpose,
+        template: "Your technician has arrived and is getting started on your {serviceType} service.",
+        variables: ["serviceType"],
+      };
     case "scheduling_completion":
       return {
         purpose,
@@ -302,6 +314,18 @@ export function buildCannedTemplate(purpose: SchedulingMessagePurpose): CannedTe
         purpose,
         template: "Please send the completion note: fixed, needs follow-up, or customer declined.",
         variables: [],
+      };
+    case "scheduling_review_request":
+      return {
+        purpose,
+        template: "Thanks for choosing {businessName}! If you were happy with the service, we'd really appreciate a quick review: {reviewLink}",
+        variables: ["businessName", "reviewLink"],
+      };
+    case "scheduling_followup_outreach":
+      return {
+        purpose,
+        template: "{businessName} here — your technician noted a follow-up is needed for your {serviceType} service. We'll be reaching out soon to get that scheduled for you.",
+        variables: ["businessName", "serviceType"],
       };
     case "scheduling_sick_tech_notice":
       return {
@@ -763,46 +787,142 @@ export async function onJobCompleted(
   await enqueueWithDedupe(custMessage, db);
   messages.push(custMessage);
 
-  // Tech completion note prompt
-  if (job.technicianId) {
-    const techInfo = await db.getTechnicianInfo(job.technicianId);
-    if (techInfo) {
-      const techContent = await generateOrFallback(
-        "scheduling_completion_note_prompt",
-        aiGenerator,
-        {
-          purpose: "scheduling_completion_note_prompt",
-          businessName: "",
-          customerName: null,
-          serviceType: job.serviceType,
-          technicianName: techInfo.name,
-          date: job.scheduledDate,
-          windowInfo: null,
-          additionalContext: {},
-        },
-        {},
-      );
-
-      const techMessage = buildMessage({
-        businessId: job.businessId,
-        conversationId: null,
-        jobId,
-        purpose: "scheduling_completion_note_prompt",
-        audience: "technician",
-        channel: "sms",
-        recipientPhone: techInfo.phone,
-        recipientEmail: null,
-        content: techContent,
-        dedupeKey: `scheduling_completion_note_prompt:${jobId}`,
-        scheduledSendAt: null,
-        status: "pending",
-      });
-      await enqueueWithDedupe(techMessage, db);
-      messages.push(techMessage);
-    }
-  }
+  // Tech completion note prompt removed — tech now uses context-aware
+  // completion buttons in the UI instead of receiving an SMS prompt.
 
   return messages;
+}
+
+// ── 4b. onReviewRequested ────────────────────────────────────────────────────
+
+/**
+ * Queue a review request message to the customer after a FIXED completion.
+ * Uses the business's google_review_link from business_config.
+ */
+export async function onReviewRequested(
+  jobId: string,
+  reviewLink: string,
+  db: CommunicationWiringDb,
+  clock: ClockProvider,
+  aiGenerator: AiTextGenerator,
+): Promise<SchedulingOutboundMessage | null> {
+  const job = await db.getSchedulingJob(jobId);
+  if (!job) throw new Error(`Job not found: ${jobId}`);
+
+  const conv = await db.getConversationForJob(jobId);
+  const biz = await db.getBusinessInfo(job.businessId);
+
+  if (!reviewLink) return null;
+
+  const content = await generateOrFallback(
+    "scheduling_review_request",
+    aiGenerator,
+    {
+      purpose: "scheduling_review_request",
+      businessName: biz?.businessName ?? "Our team",
+      customerName: job.customerName,
+      serviceType: job.serviceType,
+      technicianName: null,
+      date: job.scheduledDate,
+      windowInfo: null,
+      additionalContext: { reviewLink },
+    },
+    {
+      businessName: biz?.businessName ?? "Our team",
+      reviewLink,
+    },
+  );
+
+  const status = await determineStatusAndSchedule(
+    "scheduling_review_request",
+    conv?.customerPhone ?? job.customerPhone,
+    conv?.conversationId ?? null,
+    clock, db,
+    biz?.quietHoursStart, biz?.quietHoursEnd, biz?.timezone,
+    job.scheduledDate,
+  );
+
+  const msg = buildMessage({
+    businessId: job.businessId,
+    conversationId: conv?.conversationId ?? null,
+    jobId,
+    purpose: "scheduling_review_request",
+    audience: "customer",
+    channel: conv?.channel ?? "sms",
+    recipientPhone: conv?.customerPhone ?? job.customerPhone,
+    recipientEmail: conv?.customerEmail ?? job.customerEmail,
+    content,
+    dedupeKey: `scheduling_review_request:${jobId}`,
+    scheduledSendAt: status.scheduledSendAt,
+    status: status.status,
+  });
+  await enqueueWithDedupe(msg, db);
+  return msg;
+}
+
+// ── 4c. onFollowUpCreated ────────────────────────────────────────────────────
+
+/**
+ * Queue a follow-up outreach message to the customer after a NEEDS_FOLLOWUP
+ * completion. Lets the customer know the tech noted a return visit is needed
+ * and they'll be contacted to schedule it.
+ */
+export async function onFollowUpCreated(
+  jobId: string,
+  db: CommunicationWiringDb,
+  clock: ClockProvider,
+  aiGenerator: AiTextGenerator,
+): Promise<SchedulingOutboundMessage> {
+  const job = await db.getSchedulingJob(jobId);
+  if (!job) throw new Error(`Job not found: ${jobId}`);
+
+  const conv = await db.getConversationForJob(jobId);
+  const biz = await db.getBusinessInfo(job.businessId);
+
+  const content = await generateOrFallback(
+    "scheduling_followup_outreach",
+    aiGenerator,
+    {
+      purpose: "scheduling_followup_outreach",
+      businessName: biz?.businessName ?? "Our team",
+      customerName: job.customerName,
+      serviceType: job.serviceType,
+      technicianName: null,
+      date: job.scheduledDate,
+      windowInfo: null,
+      additionalContext: {},
+    },
+    {
+      businessName: biz?.businessName ?? "Our team",
+      serviceType: job.serviceType,
+    },
+  );
+
+  const status = await determineStatusAndSchedule(
+    "scheduling_followup_outreach",
+    conv?.customerPhone ?? job.customerPhone,
+    conv?.conversationId ?? null,
+    clock, db,
+    biz?.quietHoursStart, biz?.quietHoursEnd, biz?.timezone,
+    job.scheduledDate,
+  );
+
+  const msg = buildMessage({
+    businessId: job.businessId,
+    conversationId: conv?.conversationId ?? null,
+    jobId,
+    purpose: "scheduling_followup_outreach",
+    audience: "customer",
+    channel: conv?.channel ?? "sms",
+    recipientPhone: conv?.customerPhone ?? job.customerPhone,
+    recipientEmail: conv?.customerEmail ?? job.customerEmail,
+    content,
+    dedupeKey: `scheduling_followup_outreach:${jobId}`,
+    scheduledSendAt: status.scheduledSendAt,
+    status: status.status,
+  });
+  await enqueueWithDedupe(msg, db);
+  return msg;
 }
 
 // ── 5. onDriftCommunicationTriggered ─────────────────────────────────────────
@@ -1114,18 +1234,63 @@ export async function onPullForwardAccepted(
 }
 
 // ── 9. onTechArrived ─────────────────────────────────────────────────────────
+// Sends a customer-facing "your tech has arrived" notification.
 // NOTE: No longer sends an immediate estimate prompt on arrival.
 // The tech needs time to diagnose before giving a time estimate.
 // Estimate prompts now fire from the estimateTimeoutWorker at
 // 30 minutes (first prompt) and 60 minutes (reminder) post-arrival.
 
 export async function onTechArrived(
-  _jobId: string,
-  _db: CommunicationWiringDb,
-  _clock: ClockProvider,
-  _aiGenerator: AiTextGenerator,
-): Promise<void> {
-  // Intentional no-op — estimate prompt moved to worker-based checkpoints
+  jobId: string,
+  db: CommunicationWiringDb,
+  clock: ClockProvider,
+  aiGenerator: AiTextGenerator,
+): Promise<SchedulingOutboundMessage> {
+  const job = await db.getSchedulingJob(jobId);
+  if (!job) throw new Error(`Job not found: ${jobId}`);
+
+  const conv = await db.getConversationForJob(jobId);
+
+  const content = await generateOrFallback(
+    "scheduling_arrival",
+    aiGenerator,
+    {
+      purpose: "scheduling_arrival",
+      businessName: "",
+      customerName: job.customerName,
+      serviceType: job.serviceType,
+      technicianName: null,
+      date: job.scheduledDate,
+      windowInfo: null,
+      additionalContext: {},
+    },
+    { serviceType: job.serviceType },
+  );
+
+  const { status, scheduledSendAt } = await determineStatusAndSchedule(
+    "scheduling_arrival",
+    conv?.customerPhone ?? job.customerPhone,
+    conv?.conversationId ?? null,
+    clock, db,
+  );
+
+  const message = buildMessage({
+    businessId: job.businessId,
+    conversationId: conv?.conversationId ?? null,
+    jobId,
+    purpose: "scheduling_arrival",
+    audience: "customer",
+    channel: conv?.channel ?? "sms",
+    recipientPhone: conv?.customerPhone ?? job.customerPhone,
+    recipientEmail: conv?.customerEmail ?? job.customerEmail,
+    content,
+    dedupeKey: `scheduling_arrival:${jobId}`,
+    scheduledSendAt,
+    status,
+  });
+
+  await enqueueWithDedupe(message, db);
+  return message;
 }
 
 // ── 9b. sendEstimatePrompt / sendEstimateReminder ────────────────────────────
@@ -1328,6 +1493,7 @@ const ALL_SCHEDULING_PURPOSES: SchedulingMessagePurpose[] = [
   "scheduling_confirmation",
   "scheduling_morning_reminder",
   "scheduling_en_route",
+  "scheduling_arrival",
   "scheduling_completion",
   "scheduling_delay_notice",
   "scheduling_window_change",
@@ -1337,6 +1503,8 @@ const ALL_SCHEDULING_PURPOSES: SchedulingMessagePurpose[] = [
   "scheduling_tech_estimate_prompt",
   "scheduling_tech_estimate_reminder",
   "scheduling_completion_note_prompt",
+  "scheduling_review_request",
+  "scheduling_followup_outreach",
   "scheduling_sick_tech_notice",
 ];
 

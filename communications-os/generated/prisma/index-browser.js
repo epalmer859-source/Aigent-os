@@ -707,6 +707,8 @@ exports.Prisma.Scheduling_jobsScalarFieldEnum = {
   ai_classified_type: 'ai_classified_type',
   tech_confirmed_type: 'tech_confirmed_type',
   completion_note: 'completion_note',
+  window_start: 'window_start',
+  window_end: 'window_end',
   arrived_at: 'arrived_at',
   completed_at: 'completed_at',
   created_at: 'created_at',
@@ -732,6 +734,28 @@ exports.Prisma.Scheduling_eventsScalarFieldEnum = {
   new_value: 'new_value',
   triggered_by: 'triggered_by',
   timestamp: 'timestamp'
+};
+
+exports.Prisma.Follow_up_requestsScalarFieldEnum = {
+  id: 'id',
+  business_id: 'business_id',
+  scheduling_job_id: 'scheduling_job_id',
+  follow_up_job_id: 'follow_up_job_id',
+  customer_id: 'customer_id',
+  technician_id: 'technician_id',
+  description: 'description',
+  estimated_low_minutes: 'estimated_low_minutes',
+  estimated_high_minutes: 'estimated_high_minutes',
+  needs_parts: 'needs_parts',
+  parts_description: 'parts_description',
+  parts_expected_date: 'parts_expected_date',
+  parts_notes: 'parts_notes',
+  parts_arrived: 'parts_arrived',
+  needs_additional_tech: 'needs_additional_tech',
+  additional_tech_reason: 'additional_tech_reason',
+  status: 'status',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
 };
 
 exports.Prisma.Rebook_queueScalarFieldEnum = {
@@ -1142,6 +1166,7 @@ exports.Prisma.ModelName = {
   scheduling_jobs: 'scheduling_jobs',
   capacity_reservations: 'capacity_reservations',
   scheduling_events: 'scheduling_events',
+  follow_up_requests: 'follow_up_requests',
   rebook_queue: 'rebook_queue',
   queue_arrangements: 'queue_arrangements',
   pull_forward_offers: 'pull_forward_offers',
