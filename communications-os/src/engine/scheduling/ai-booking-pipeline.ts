@@ -328,17 +328,15 @@ export async function generateAvailableSlots(
       const lunchStart = parseHHMM(tech.lunchStart);
 
       for (const window of windows) {
-        const rawStart = window.startMinutes;
-        const rawEnd = rawStart + totalCostMinutes;
+        const techArrivalMinutes = window.startMinutes;
 
-        // Round to nearest 15 minutes for display
-        const windowStart = roundTo15(rawStart);
-        const windowEnd = roundTo15(rawEnd);
+        // Customer-facing window uses Rule 1 (Diagnostic):
+        // start = tech arrival + 1 hour, end = start + 3 hours
+        // This is the window we TELL the customer; the capacity cost
+        // (totalCostMinutes) is what we BLOCK on the tech's schedule.
+        const windowStart = roundTo15(techArrivalMinutes + 60);   // +1hr after arrival
+        const windowEnd = roundTo15(windowStart + 180);           // +3hr window
         const windowWidth = windowEnd - windowStart;
-
-        // Filter: window must be at least 60 min and at most 240 min
-        if (windowWidth < 60) continue;
-        if (windowWidth > 240) continue;
 
         // Filter by time-of-day preference using customer's cutoff time
         // Morning: entire window must end before cutoff (customer unavailable after cutoff)
@@ -348,12 +346,12 @@ export async function generateAvailableSlots(
 
         // Build label
         const dateLabel = formatDateLabel(date, now);
-        const hoursFromNow = ((date.getTime() + rawStart * 60000) - now.getTime()) / 3600000;
+        const hoursFromNow = ((date.getTime() + techArrivalMinutes * 60000) - now.getTime()) / 3600000;
 
         let label: string;
         if (hoursFromNow < 3 && hoursFromNow >= 0) {
           // Too close — use broad label
-          const period = rawStart < lunchStart ? "this morning" : "this afternoon";
+          const period = techArrivalMinutes < lunchStart ? "this morning" : "this afternoon";
           label = `${dateLabel}, ${period} with ${tech.name}`;
         } else {
           label = `${dateLabel} ${formatTime(windowStart)} – ${formatTime(windowEnd)} with ${tech.name}`;
