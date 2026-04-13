@@ -63,7 +63,7 @@ export async function getDiagnosticTime(
     select: { estimated_minutes: true },
   });
 
-  return diag?.estimated_minutes ?? 30;
+  return diag?.estimated_minutes ?? 90;
 }
 
 /**

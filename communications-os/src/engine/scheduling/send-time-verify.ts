@@ -27,6 +27,7 @@ const VALID_STATES_FOR_PURPOSE: Record<SchedulingMessagePurpose, ReadonlySet<Sch
   scheduling_pull_forward_offer: new Set(["NOT_STARTED"]),
   scheduling_pull_forward_accepted: new Set(["NOT_STARTED"]),
   scheduling_tech_estimate_prompt: new Set(["EN_ROUTE", "ARRIVED", "IN_PROGRESS"]),
+  scheduling_tech_estimate_reminder: new Set(["ARRIVED", "IN_PROGRESS"]),
   scheduling_completion_note_prompt: new Set(["COMPLETED", "INCOMPLETE"]),
   scheduling_sick_tech_notice: new Set(["NOT_STARTED", "NEEDS_REBOOK"]),
 };

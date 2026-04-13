@@ -347,6 +347,7 @@ export function createBookingOrchestratorDb(prisma: PrismaClient): BookingOrches
           address_lat: job.addressLat,
           address_lng: job.addressLng,
           address_text: job.addressText || "",
+          job_notes: job.jobNotes ?? null,
           queue_version: 0,
           rebook_count: 0,
         },
@@ -1340,11 +1341,11 @@ export function createEstimateTimeoutWorkerDb(prisma: PrismaClient): EstimateTim
   return {
     pauseGuardDb: createPauseGuardDb(prisma),
 
-    async findArrivedJobsWithoutEstimate(businessId: string, cutoffDate: Date) {
+    async findJobsWithoutEstimate(businessId: string, cutoffDate: Date) {
       const rows = await prisma.scheduling_jobs.findMany({
         where: {
           business_id: businessId,
-          status: "ARRIVED",
+          status: { in: ["ARRIVED", "IN_PROGRESS"] },
           arrived_at: { lte: cutoffDate },
           tech_confirmed_type: null, // no estimate submitted
         },
@@ -1359,8 +1360,7 @@ export function createEstimateTimeoutWorkerDb(prisma: PrismaClient): EstimateTim
         }));
     },
 
-    async hasEstimateReminder(jobId: string) {
-      const dedupeKey = `scheduling_tech_estimate_prompt:${jobId}:reminder`;
+    async hasDedupeKey(dedupeKey: string) {
       const existing = await prisma.outbound_queue.findFirst({
         where: {
           dedupe_key: dedupeKey,

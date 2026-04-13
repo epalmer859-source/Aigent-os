@@ -706,6 +706,9 @@ async function _generateAIResponseFromDb(
         customerName = convTitle?.contact_display_name ?? "Customer";
       }
 
+      // Customer's problem description — saved as job notes for the tech
+      const serviceDescription = effectiveDecision.detected_intent ?? "";
+
       // ── STEP 2: Customer selected a slot → book it ─────────────────
       if (selectedSlotIndex !== null && selectedSlotIndex > 0) {
         console.log("[ai-response] STEP 2 — booking selected slot:", selectedSlotIndex);
@@ -743,6 +746,7 @@ async function _generateAIResponseFromDb(
               customerId,
               customerName,
               addressText,
+              serviceDescription,
               slot: pickedSlot,
             }, {
               bookingDb,
@@ -812,12 +816,11 @@ async function _generateAIResponseFromDb(
         console.log("[ai-response] STEP 1 — generating available slots");
         console.log("[ai-response] STEP 1 inputs:", {
           businessId,
-          serviceDescription: effectiveDecision.detected_intent ?? "(none)",
+          serviceDescription: serviceDescription || "(none)",
           availabilityPref,
           conversationState,
         });
 
-        const serviceDescription = effectiveDecision.detected_intent ?? "";
         const capacityDb = createCapacityDb(db);
 
         const slotDeps = {
@@ -828,7 +831,7 @@ async function _generateAIResponseFromDb(
               where: { business_id: bizId, is_active: true },
               include: { skill_tags: true, scheduling_jobs: { where: { status: { in: ["NOT_STARTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS"] }, scheduled_date: new Date() }, select: { id: true } } },
             });
-            console.log("[ai-response] STEP 1 — found", techs.length, "active techs:", techs.map((t) => ({ id: t.id, name: t.name, skills: t.skill_tags.map((s: { service_type_id: string }) => s.service_type_id) })));
+            console.log("[ai-response] STEP 1 — found", techs.length, "active techs");
             return techs.map((t) => ({
               id: t.id,
               businessId: t.business_id,
@@ -845,29 +848,21 @@ async function _generateAIResponseFromDb(
               existingJobsToday: t.scheduling_jobs.length,
             }));
           },
-          async getServiceTypes(bizId: string) {
-            console.log("[ai-response] STEP 1 — querying service types for business:", bizId);
-            const rows = await db.service_types.findMany({ where: { business_id: bizId } });
-            console.log("[ai-response] STEP 1 — found", rows.length, "service types:", rows.map((r) => ({ id: r.id, name: r.name })));
-            return rows.map((r) => ({
-              id: r.id,
-              name: r.name,
-              industry: r.industry,
-              baseDurationMinutes: r.base_duration_minutes,
-              volatilityTier: r.volatility_tier as "LOW" | "MEDIUM" | "HIGH",
-              symptomPhrases: Array.isArray(r.symptom_phrases) ? r.symptom_phrases as string[] : [],
-              propertyTypeVariants: r.property_type_variants as Record<string, number> | undefined,
-            }));
+          async getDiagnosticMinutes(bizId: string) {
+            const { getDiagnosticTime } = await import("~/engine/scheduling/service-estimates");
+            const minutes = await getDiagnosticTime(db as any, bizId);
+            console.log("[ai-response] STEP 1 — diagnostic duration:", minutes, "minutes");
+            return minutes;
           },
-          async getBusinessIndustry(bizId: string) {
-            console.log("[ai-response] STEP 1 — querying business industry for:", bizId);
-            const biz = await db.businesses.findUnique({ where: { id: bizId }, select: { industry: true } });
-            if (!biz) {
-              console.error("[ai-response] STEP 1 — business not found:", bizId);
-              return "general";
-            }
-            console.log("[ai-response] STEP 1 — business industry:", biz.industry);
-            return biz.industry;
+          async getDiagnosticServiceTypeId(bizId: string) {
+            // Return the first service_types row — satisfies the FK on scheduling_jobs
+            const row = await db.service_types.findFirst({
+              where: { business_id: bizId },
+              select: { id: true },
+            });
+            if (!row) throw new Error(`No service types configured for business ${bizId}`);
+            console.log("[ai-response] STEP 1 — diagnostic service type ID:", row.id);
+            return row.id;
           },
           async getQueueForTechDate(technicianId: string, date: Date) {
             const { createBookingOrchestratorDb: createBODb } = await import("~/engine/scheduling/prisma-scheduling-adapter");

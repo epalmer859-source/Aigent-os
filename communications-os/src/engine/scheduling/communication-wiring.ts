@@ -43,6 +43,7 @@ export type SchedulingMessagePurpose =
   | "scheduling_pull_forward_offer"
   | "scheduling_pull_forward_accepted"
   | "scheduling_tech_estimate_prompt"
+  | "scheduling_tech_estimate_reminder"
   | "scheduling_completion_note_prompt"
   | "scheduling_sick_tech_notice";
 
@@ -181,6 +182,7 @@ const URGENT_PURPOSES: Set<SchedulingMessagePurpose> = new Set([
   "scheduling_window_change",
   "scheduling_pull_forward_accepted",
   "scheduling_tech_estimate_prompt",
+  "scheduling_tech_estimate_reminder",
   "scheduling_completion_note_prompt",
   "scheduling_sick_tech_notice",
 ]);
@@ -286,8 +288,14 @@ export function buildCannedTemplate(purpose: SchedulingMessagePurpose): CannedTe
     case "scheduling_tech_estimate_prompt":
       return {
         purpose,
-        template: "Please confirm the service type for {serviceType} and reply with your on-site time estimate.",
+        template: "What did you find? How long do you think the fix will take for {serviceType}?",
         variables: ["serviceType"],
+      };
+    case "scheduling_tech_estimate_reminder":
+      return {
+        purpose,
+        template: "Hey just need a quick update on this job so I can keep the schedule on track.",
+        variables: [],
       };
     case "scheduling_completion_note_prompt":
       return {
@@ -1106,8 +1114,24 @@ export async function onPullForwardAccepted(
 }
 
 // ── 9. onTechArrived ─────────────────────────────────────────────────────────
+// NOTE: No longer sends an immediate estimate prompt on arrival.
+// The tech needs time to diagnose before giving a time estimate.
+// Estimate prompts now fire from the estimateTimeoutWorker at
+// 30 minutes (first prompt) and 60 minutes (reminder) post-arrival.
 
 export async function onTechArrived(
+  _jobId: string,
+  _db: CommunicationWiringDb,
+  _clock: ClockProvider,
+  _aiGenerator: AiTextGenerator,
+): Promise<void> {
+  // Intentional no-op — estimate prompt moved to worker-based checkpoints
+}
+
+// ── 9b. sendEstimatePrompt / sendEstimateReminder ────────────────────────────
+// Called by the estimateTimeoutWorker at the 30-min and 60-min checkpoints.
+
+export async function sendEstimatePrompt(
   jobId: string,
   db: CommunicationWiringDb,
   clock: ClockProvider,
@@ -1146,7 +1170,55 @@ export async function onTechArrived(
     recipientPhone: techInfo?.phone ?? null,
     recipientEmail: null,
     content,
-    dedupeKey: `scheduling_tech_estimate_prompt:${jobId}`,
+    dedupeKey: `scheduling_tech_estimate_prompt:${jobId}:estimate_prompt_30`,
+    scheduledSendAt: null,
+    status: "pending",
+  });
+
+  await enqueueWithDedupe(message, db);
+  return message;
+}
+
+export async function sendEstimateReminder(
+  jobId: string,
+  db: CommunicationWiringDb,
+  clock: ClockProvider,
+  aiGenerator: AiTextGenerator,
+): Promise<SchedulingOutboundMessage> {
+  const job = await db.getSchedulingJob(jobId);
+  if (!job) throw new Error(`Job not found: ${jobId}`);
+
+  const techInfo = job.technicianId
+    ? await db.getTechnicianInfo(job.technicianId)
+    : null;
+
+  const content = await generateOrFallback(
+    "scheduling_tech_estimate_reminder",
+    aiGenerator,
+    {
+      purpose: "scheduling_tech_estimate_reminder",
+      businessName: "",
+      customerName: null,
+      serviceType: job.serviceType,
+      technicianName: techInfo?.name ?? null,
+      date: job.scheduledDate,
+      windowInfo: null,
+      additionalContext: {},
+    },
+    {},
+  );
+
+  const message = buildMessage({
+    businessId: job.businessId,
+    conversationId: null,
+    jobId,
+    purpose: "scheduling_tech_estimate_reminder",
+    audience: "technician",
+    channel: "sms",
+    recipientPhone: techInfo?.phone ?? null,
+    recipientEmail: null,
+    content,
+    dedupeKey: `scheduling_tech_estimate_prompt:${jobId}:estimate_prompt_60`,
     scheduledSendAt: null,
     status: "pending",
   });
@@ -1263,6 +1335,7 @@ const ALL_SCHEDULING_PURPOSES: SchedulingMessagePurpose[] = [
   "scheduling_pull_forward_offer",
   "scheduling_pull_forward_accepted",
   "scheduling_tech_estimate_prompt",
+  "scheduling_tech_estimate_reminder",
   "scheduling_completion_note_prompt",
   "scheduling_sick_tech_notice",
 ];

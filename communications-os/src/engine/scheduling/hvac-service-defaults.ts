@@ -50,7 +50,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
 // ── Required 30 — always active during onboarding ────────────────────────────
 
 export const REQUIRED_SERVICES: HvacServiceDefault[] = [
-  { name: "Diagnostic visit", category: "diagnostic", estimatedMinutes: 30, tier: "required" },
+  { name: "Diagnostic visit", category: "diagnostic", estimatedMinutes: 90, tier: "required" },
   { name: "Capacitor replacement", category: "electrical", estimatedMinutes: 30, tier: "required" },
   { name: "Contactor replacement", category: "electrical", estimatedMinutes: 35, tier: "required" },
   { name: "Circuit board replacement", category: "electrical", estimatedMinutes: 75, tier: "required" },

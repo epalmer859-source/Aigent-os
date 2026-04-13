@@ -49,7 +49,7 @@ import {
   projectScopePromptWorker,
   workerHeartbeatWorker,
 } from "../engine/scheduling/scheduling-workers";
-import { onTechArrived as onEstimateTimeoutReminder } from "../engine/scheduling/communication-wiring";
+import { sendEstimatePrompt, sendEstimateReminder } from "../engine/scheduling/communication-wiring";
 import { onMorningReminderDue } from "../engine/scheduling/communication-wiring";
 import type { AiTextGenerator } from "../engine/scheduling/communication-wiring";
 import { schedulingAdapters } from "../engine/production-init";
@@ -240,11 +240,16 @@ cron.schedule("*/5 6-22 * * *", () => safeRun("estimateTimeout", async () => {
   await forEachActiveBusiness("estimateTimeout", async (config) => {
     const timeoutDb = schedulingAdapters.estimateTimeoutWorker;
     const commDb = schedulingAdapters.communicationWiring;
-    const result = await estimateTimeoutWorker(config, schedulingClock, timeoutDb, async (jobId) => {
-      await onEstimateTimeoutReminder(jobId, commDb, schedulingCommClock, workerAiGenerator);
-    });
-    if (result.remindersQueued > 0) {
-      console.log(`[estimateTimeout] Business ${config.businessId}: sent ${result.remindersQueued} estimate reminders`);
+    const result = await estimateTimeoutWorker(config, schedulingClock, timeoutDb,
+      async (jobId) => {
+        await sendEstimatePrompt(jobId, commDb, schedulingCommClock, workerAiGenerator);
+      },
+      async (jobId) => {
+        await sendEstimateReminder(jobId, commDb, schedulingCommClock, workerAiGenerator);
+      },
+    );
+    if (result.promptsSent > 0 || result.remindersSent > 0) {
+      console.log(`[estimateTimeout] Business ${config.businessId}: sent ${result.promptsSent} prompts, ${result.remindersSent} reminders`);
     }
   });
 }), { timezone: "UTC" });

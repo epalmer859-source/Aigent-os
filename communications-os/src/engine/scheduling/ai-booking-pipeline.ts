@@ -17,7 +17,6 @@
 // via Google Maps Geocoding API can be added later.
 // ============================================================
 
-import { classifyServiceType, getBookedDuration, getUnknownTierDuration, type ServiceTypeRecord } from "./duration-intelligence";
 import type { QueuedJob } from "./queue-insertion";
 import { bookJob, type BookingRequest, type BookingOutcome } from "./booking-orchestrator";
 import { checkCapacity, parseHHMM, calculateAvailableMinutes, type CapacityDb, type TimePreference, type TechProfile } from "./capacity-math";
@@ -36,8 +35,8 @@ export interface SlotGenerationInput {
 
 export interface SlotGenerationDeps {
   getTechCandidates: (businessId: string) => Promise<TechCandidate[]>;
-  getServiceTypes: (businessId: string) => Promise<ServiceTypeRecord[]>;
-  getBusinessIndustry: (businessId: string) => Promise<string>;
+  getDiagnosticMinutes: (businessId: string) => Promise<number>;
+  getDiagnosticServiceTypeId: (businessId: string) => Promise<string>;
   getQueueForTechDate: (technicianId: string, date: Date) => Promise<QueuedJob[]>;
   capacityDb: CapacityDb;
 }
@@ -66,6 +65,7 @@ export interface BookSlotInput {
   customerId: string;
   customerName: string;
   addressText: string;
+  serviceDescription: string;
   slot: AvailableSlot;
 }
 
@@ -247,39 +247,29 @@ export async function generateAvailableSlots(
 ): Promise<SlotGenerationResult> {
   const { businessId, serviceDescription, availabilityPreference, availabilityCutoffTime } = input;
 
-  // 1. Load techs, service types, industry
-  const [techs, serviceTypes, industry] = await Promise.all([
+  // 1. Load techs + diagnostic duration
+  const [techs, diagnosticMinutes, diagnosticServiceTypeId] = await Promise.all([
     deps.getTechCandidates(businessId),
-    deps.getServiceTypes(businessId),
-    deps.getBusinessIndustry(businessId),
+    deps.getDiagnosticMinutes(businessId),
+    deps.getDiagnosticServiceTypeId(businessId),
   ]);
 
   if (techs.length === 0) {
     return { success: false, reason: "No technicians configured for this business." };
   }
 
-  // 2. Classify service type + compute duration
-  const classification = classifyServiceType(serviceDescription, industry, serviceTypes);
-  const driveTimeEstimate = 15; // V1 default
+  // 2. Every first visit is a diagnostic — use owner's raw diagnostic time + drive
+  // No multipliers. The owner's configured time is the time.
 
-  let totalCostMinutes: number;
-  let serviceTypeId: string;
-  let serviceTypeName: string;
+  // V1: hardcoded 15 min. Replace with OSRM drive time calculation
+  // from previous job's coordinates to this job's coordinates when available.
+  // The slot generation should eventually call osrm-service to get real
+  // drive time between jobs based on actual lat/lng addresses.
+  const driveTimeMinutes = 15;
 
-  if (classification) {
-    const cost = getBookedDuration(classification.serviceType, null, driveTimeEstimate);
-    totalCostMinutes = cost.totalCostMinutes;
-    serviceTypeId = classification.serviceType.id;
-    serviceTypeName = classification.serviceType.name;
-  } else {
-    const cost = getUnknownTierDuration(serviceTypes, driveTimeEstimate);
-    totalCostMinutes = cost.totalCostMinutes;
-    if (serviceTypes.length === 0) {
-      return { success: false, reason: "No service types configured for this business." };
-    }
-    serviceTypeId = serviceTypes[0]!.id;
-    serviceTypeName = serviceTypes[0]!.name;
-  }
+  const totalCostMinutes = diagnosticMinutes + driveTimeMinutes;
+  const serviceTypeId = diagnosticServiceTypeId;
+  const serviceTypeName = "Diagnostic";
 
   // 3. Parse time preference + cutoff
   const timePreference = parseTimePreference(availabilityPreference);
@@ -307,8 +297,8 @@ export async function generateAvailableSlots(
     for (const tech of techs) {
       if (!tech.isActive) continue;
 
-      // Check if this tech has the skill for the service type
-      if (!tech.skillTags.includes(serviceTypeId)) continue;
+      // Skill tag check skipped for diagnostics — every tech can do a diagnostic.
+      // Skill tags will be used for known return-visit jobs with specific service types.
 
       // Check capacity for this tech on this date
       const cap = await checkCapacity(
@@ -431,6 +421,7 @@ export async function bookSelectedSlot(
     addressLng: 0,
     addressText: input.addressText,
     serviceType: slot.serviceTypeId,
+    jobNotes: input.serviceDescription || null,
   };
 
   const outcome: BookingOutcome = await bookJob(

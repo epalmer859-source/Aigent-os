@@ -282,56 +282,88 @@ export async function manualPositionExpiryWorker(
 
 // ── 6. estimateTimeoutWorker ───────────────────────────────────────────────
 //
-// F15: Flag jobs in ARRIVED state where the tech hasn't submitted a time
-// estimate within the timeout window. Fires a follow-up prompt.
+// Two-checkpoint system for prompting techs for time estimates after arrival.
+// CHECKPOINT 1 (30 min): First estimate prompt — "What did you find?"
+// CHECKPOINT 2 (60 min): Gentle reminder — "Just need a quick update"
+// Both only fire if tech_confirmed_type is still null (no estimate submitted).
 
-const ESTIMATE_TIMEOUT_MINUTES = 20; // blueprint: "20-minute soft gate"
+const ESTIMATE_PROMPT_MINUTES = 30;   // checkpoint 1: first prompt
+const ESTIMATE_REMINDER_MINUTES = 60; // checkpoint 2: reminder
 
 export interface EstimateTimeoutWorkerDb {
-  /** List ARRIVED jobs where arrived_at is older than the cutoff and no estimate submitted. */
-  findArrivedJobsWithoutEstimate(businessId: string, cutoffDate: Date): Promise<Array<{
+  /** List ARRIVED/IN_PROGRESS jobs where arrived_at is older than the cutoff and no estimate submitted. */
+  findJobsWithoutEstimate(businessId: string, cutoffDate: Date): Promise<Array<{
     jobId: string;
     technicianId: string;
     arrivedAt: Date;
   }>>;
-  /** Check if a tech_estimate_prompt reminder has already been re-sent for this job. */
-  hasEstimateReminder(jobId: string): Promise<boolean>;
+  /** Check if a message with the given dedupe key already exists (not failed/canceled). */
+  hasDedupeKey(dedupeKey: string): Promise<boolean>;
   pauseGuardDb: PauseGuardDb;
 }
 
 export interface EstimateTimeoutWorkerResult {
   businessId: string;
-  timedOutJobs: Array<{ jobId: string; technicianId: string }>;
-  remindersQueued: number;
+  promptsSent: number;
+  remindersSent: number;
 }
 
 export async function estimateTimeoutWorker(
   config: BusinessConfig,
   clock: WorkerClockProvider,
   db: EstimateTimeoutWorkerDb,
+  queuePrompt: (jobId: string) => Promise<void>,
   queueReminder: (jobId: string) => Promise<void>,
 ): Promise<EstimateTimeoutWorkerResult> {
   const pauseCheck = await checkPauseGuard(config.businessId, db.pauseGuardDb);
   if (!pauseCheck.allowed) {
-    return { businessId: config.businessId, timedOutJobs: [], remindersQueued: 0 };
+    return { businessId: config.businessId, promptsSent: 0, remindersSent: 0 };
   }
 
-  const cutoff = new Date(clock.now().getTime() - ESTIMATE_TIMEOUT_MINUTES * 60 * 1000);
-  const timedOut = await db.findArrivedJobsWithoutEstimate(config.businessId, cutoff);
+  const now = clock.now().getTime();
+  const cutoff30 = new Date(now - ESTIMATE_PROMPT_MINUTES * 60 * 1000);
+  const cutoff60 = new Date(now - ESTIMATE_REMINDER_MINUTES * 60 * 1000);
 
-  let remindersQueued = 0;
-  for (const job of timedOut) {
-    const hasReminder = await db.hasEstimateReminder(job.jobId);
-    if (!hasReminder) {
-      await queueReminder(job.jobId);
-      remindersQueued++;
+  // Get all jobs that have been on-site 30+ minutes without an estimate
+  const eligibleJobs = await db.findJobsWithoutEstimate(config.businessId, cutoff30);
+
+  let promptsSent = 0;
+  let remindersSent = 0;
+
+  for (const job of eligibleJobs) {
+    const arrivedMs = job.arrivedAt.getTime();
+
+    // CHECKPOINT 2: 60+ minutes — send reminder if not already sent
+    if (arrivedMs <= cutoff60.getTime()) {
+      const reminderKey = `scheduling_tech_estimate_prompt:${job.jobId}:estimate_prompt_60`;
+      const hasReminder = await db.hasDedupeKey(reminderKey);
+      if (!hasReminder) {
+        await queueReminder(job.jobId);
+        remindersSent++;
+      }
+      // Also ensure checkpoint 1 was sent (in case worker was down earlier)
+      const promptKey = `scheduling_tech_estimate_prompt:${job.jobId}:estimate_prompt_30`;
+      const hasPrompt = await db.hasDedupeKey(promptKey);
+      if (!hasPrompt) {
+        await queuePrompt(job.jobId);
+        promptsSent++;
+      }
+      continue;
+    }
+
+    // CHECKPOINT 1: 30+ minutes — send first estimate prompt if not already sent
+    const promptKey = `scheduling_tech_estimate_prompt:${job.jobId}:estimate_prompt_30`;
+    const hasPrompt = await db.hasDedupeKey(promptKey);
+    if (!hasPrompt) {
+      await queuePrompt(job.jobId);
+      promptsSent++;
     }
   }
 
   return {
     businessId: config.businessId,
-    timedOutJobs: timedOut.map((j) => ({ jobId: j.jobId, technicianId: j.technicianId })),
-    remindersQueued,
+    promptsSent,
+    remindersSent,
   };
 }
 
