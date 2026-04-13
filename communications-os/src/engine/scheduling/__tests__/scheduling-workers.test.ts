@@ -396,93 +396,166 @@ describe("manualPositionExpiryWorker", () => {
   });
 });
 
-// ── Estimate timeout worker ───────────────────────────────────────────────
+// ── Estimate timeout worker (two-checkpoint system) ─────────────────────────
 
 describe("estimateTimeoutWorker", () => {
   function makeEstimateDb(
     jobs: Array<{ jobId: string; technicianId: string; arrivedAt: Date }> = [],
-    hasReminder: Set<string> = new Set(),
+    existingDedupeKeys: Set<string> = new Set(),
     mode: "active" | "paused" = "active",
   ): EstimateTimeoutWorkerDb {
     return {
-      async findArrivedJobsWithoutEstimate() { return jobs; },
-      async hasEstimateReminder(jobId) { return hasReminder.has(jobId); },
+      async findJobsWithoutEstimate() { return jobs; },
+      async hasDedupeKey(key) { return existingDedupeKeys.has(key); },
       pauseGuardDb: {
         async getSchedulingMode() { return { mode }; },
       },
     };
   }
 
-  it("queues reminders for timed-out jobs without existing reminders", async () => {
-    const queued: string[] = [];
+  it("sends first prompt at 30-min checkpoint for eligible jobs", async () => {
+    const promptQueued: string[] = [];
+    const reminderQueued: string[] = [];
+    // Arrived 35 min ago (past 30-min cutoff, before 60-min cutoff)
     const jobs = [
-      { jobId: "j1", technicianId: "t1", arrivedAt: new Date("2026-04-09T13:30:00Z") },
-      { jobId: "j2", technicianId: "t2", arrivedAt: new Date("2026-04-09T13:35:00Z") },
+      { jobId: "j1", technicianId: "t1", arrivedAt: new Date(NOW.getTime() - 35 * 60 * 1000) },
     ];
     const db = makeEstimateDb(jobs);
     const result = await estimateTimeoutWorker(
       CONFIG, clock, db,
-      async (jobId) => { queued.push(jobId); },
+      async (jobId) => { promptQueued.push(jobId); },
+      async (jobId) => { reminderQueued.push(jobId); },
     );
 
-    expect(result.timedOutJobs).toHaveLength(2);
-    expect(result.remindersQueued).toBe(2);
-    expect(queued).toEqual(["j1", "j2"]);
+    expect(result.promptsSent).toBe(1);
+    expect(result.remindersSent).toBe(0);
+    expect(promptQueued).toEqual(["j1"]);
+    expect(reminderQueued).toEqual([]);
   });
 
-  it("skips jobs that already have a reminder (idempotent)", async () => {
-    const queued: string[] = [];
+  it("sends reminder at 60-min checkpoint and backfills missed prompt", async () => {
+    const promptQueued: string[] = [];
+    const reminderQueued: string[] = [];
+    // Arrived 65 min ago (past 60-min cutoff)
     const jobs = [
-      { jobId: "j1", technicianId: "t1", arrivedAt: new Date("2026-04-09T13:30:00Z") },
-      { jobId: "j2", technicianId: "t2", arrivedAt: new Date("2026-04-09T13:35:00Z") },
+      { jobId: "j1", technicianId: "t1", arrivedAt: new Date(NOW.getTime() - 65 * 60 * 1000) },
     ];
-    const db = makeEstimateDb(jobs, new Set(["j1"]));
+    const db = makeEstimateDb(jobs);
     const result = await estimateTimeoutWorker(
       CONFIG, clock, db,
-      async (jobId) => { queued.push(jobId); },
+      async (jobId) => { promptQueued.push(jobId); },
+      async (jobId) => { reminderQueued.push(jobId); },
     );
 
-    expect(result.remindersQueued).toBe(1);
-    expect(queued).toEqual(["j2"]);
+    // Both prompt (backfilled) and reminder sent
+    expect(result.promptsSent).toBe(1);
+    expect(result.remindersSent).toBe(1);
+    expect(promptQueued).toEqual(["j1"]);
+    expect(reminderQueued).toEqual(["j1"]);
   });
 
-  it("returns empty when no timed-out jobs", async () => {
+  it("skips prompt at 60-min checkpoint if already sent", async () => {
+    const promptQueued: string[] = [];
+    const reminderQueued: string[] = [];
+    const jobs = [
+      { jobId: "j1", technicianId: "t1", arrivedAt: new Date(NOW.getTime() - 65 * 60 * 1000) },
+    ];
+    // Prompt already sent at 30-min mark
+    const existingKeys = new Set(["scheduling_tech_estimate_prompt:j1:estimate_prompt_30"]);
+    const db = makeEstimateDb(jobs, existingKeys);
+    const result = await estimateTimeoutWorker(
+      CONFIG, clock, db,
+      async (jobId) => { promptQueued.push(jobId); },
+      async (jobId) => { reminderQueued.push(jobId); },
+    );
+
+    expect(result.promptsSent).toBe(0);
+    expect(result.remindersSent).toBe(1);
+    expect(promptQueued).toEqual([]);
+    expect(reminderQueued).toEqual(["j1"]);
+  });
+
+  it("skips jobs that already have both prompt and reminder (idempotent)", async () => {
+    const jobs = [
+      { jobId: "j1", technicianId: "t1", arrivedAt: new Date(NOW.getTime() - 65 * 60 * 1000) },
+    ];
+    const existingKeys = new Set([
+      "scheduling_tech_estimate_prompt:j1:estimate_prompt_30",
+      "scheduling_tech_estimate_prompt:j1:estimate_prompt_60",
+    ]);
+    const db = makeEstimateDb(jobs, existingKeys);
+    const result = await estimateTimeoutWorker(
+      CONFIG, clock, db,
+      async () => { throw new Error("should not be called"); },
+      async () => { throw new Error("should not be called"); },
+    );
+
+    expect(result.promptsSent).toBe(0);
+    expect(result.remindersSent).toBe(0);
+  });
+
+  it("returns empty when no eligible jobs", async () => {
     const db = makeEstimateDb([]);
     const result = await estimateTimeoutWorker(
       CONFIG, clock, db,
       async () => { throw new Error("should not be called"); },
+      async () => { throw new Error("should not be called"); },
     );
 
-    expect(result.timedOutJobs).toHaveLength(0);
-    expect(result.remindersQueued).toBe(0);
+    expect(result.promptsSent).toBe(0);
+    expect(result.remindersSent).toBe(0);
   });
 
   it("skips when paused", async () => {
     const jobs = [
-      { jobId: "j1", technicianId: "t1", arrivedAt: new Date("2026-04-09T13:30:00Z") },
+      { jobId: "j1", technicianId: "t1", arrivedAt: new Date(NOW.getTime() - 35 * 60 * 1000) },
     ];
     const db = makeEstimateDb(jobs, new Set(), "paused");
     const result = await estimateTimeoutWorker(
       CONFIG, clock, db,
       async () => { throw new Error("should not be called"); },
+      async () => { throw new Error("should not be called"); },
     );
 
-    expect(result.timedOutJobs).toHaveLength(0);
-    expect(result.remindersQueued).toBe(0);
+    expect(result.promptsSent).toBe(0);
+    expect(result.remindersSent).toBe(0);
   });
 
-  it("passes cutoff 15 minutes in the past to db", async () => {
+  it("passes 30-minute cutoff to findJobsWithoutEstimate", async () => {
     let receivedCutoff: Date | null = null;
     const db: EstimateTimeoutWorkerDb = {
-      async findArrivedJobsWithoutEstimate(_bizId, cutoff) { receivedCutoff = cutoff; return []; },
-      async hasEstimateReminder() { return false; },
+      async findJobsWithoutEstimate(_bizId: string, cutoff: Date) { receivedCutoff = cutoff; return []; },
+      async hasDedupeKey() { return false; },
       pauseGuardDb: {
         async getSchedulingMode() { return { mode: "active" as const }; },
       },
     };
-    await estimateTimeoutWorker(CONFIG, clock, db, async () => {});
-    const expected = new Date(NOW.getTime() - 20 * 60 * 1000);
+    await estimateTimeoutWorker(CONFIG, clock, db, async () => {}, async () => {});
+    const expected = new Date(NOW.getTime() - 30 * 60 * 1000);
     expect(receivedCutoff).toEqual(expected);
+  });
+
+  it("handles multiple jobs at different checkpoints", async () => {
+    const promptQueued: string[] = [];
+    const reminderQueued: string[] = [];
+    const jobs = [
+      // j1: 35 min ago → checkpoint 1 only
+      { jobId: "j1", technicianId: "t1", arrivedAt: new Date(NOW.getTime() - 35 * 60 * 1000) },
+      // j2: 65 min ago → both checkpoints
+      { jobId: "j2", technicianId: "t2", arrivedAt: new Date(NOW.getTime() - 65 * 60 * 1000) },
+    ];
+    const db = makeEstimateDb(jobs);
+    const result = await estimateTimeoutWorker(
+      CONFIG, clock, db,
+      async (jobId) => { promptQueued.push(jobId); },
+      async (jobId) => { reminderQueued.push(jobId); },
+    );
+
+    expect(result.promptsSent).toBe(2); // j1 prompt + j2 backfill prompt
+    expect(result.remindersSent).toBe(1); // j2 reminder only
+    expect(promptQueued).toContain("j1");
+    expect(promptQueued).toContain("j2");
+    expect(reminderQueued).toEqual(["j2"]);
   });
 });
 

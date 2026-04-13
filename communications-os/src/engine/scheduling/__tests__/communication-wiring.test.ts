@@ -24,6 +24,10 @@ import {
   onTechArrived,
   onSickTechNotice,
   onJobCanceled,
+  onReviewRequested,
+  onFollowUpCreated,
+  sendEstimatePrompt,
+  sendEstimateReminder,
   buildCannedTemplate,
   checkRateLimits,
   determineMorningReminderTier,
@@ -366,7 +370,7 @@ describe("onJobCompleted", () => {
     expect(custMsg!.audience).toBe("customer");
   });
 
-  it("enqueues tech completion_note_prompt", async () => {
+  it("does NOT enqueue tech completion_note_prompt (moved to UI buttons)", async () => {
     const state = freshCommState();
     state.jobs.set("job-1", makeJob());
     const db = createInMemoryCommDb(state);
@@ -374,8 +378,8 @@ describe("onJobCompleted", () => {
     const messages = await onJobCompleted("job-1", db, makeClock(), makeAiGenerator());
 
     const techMsg = messages.find((m) => m.purpose === "scheduling_completion_note_prompt");
-    expect(techMsg).toBeDefined();
-    expect(techMsg!.audience).toBe("technician");
+    expect(techMsg).toBeUndefined();
+    expect(messages).toHaveLength(1);
   });
 
   it("cancels obsolete pending scheduling messages before enqueueing new ones", async () => {
@@ -391,9 +395,8 @@ describe("onJobCompleted", () => {
 
     // Morning reminder should be canceled
     expect(activeByPurpose(state, "scheduling_morning_reminder")).toHaveLength(0);
-    // Completion messages should exist
+    // Completion message should exist (no more completion_note_prompt)
     expect(activeByPurpose(state, "scheduling_completion")).toHaveLength(1);
-    expect(activeByPurpose(state, "scheduling_completion_note_prompt")).toHaveLength(1);
   });
 
   it("customer completion obeys quiet-hours rule", async () => {
@@ -606,18 +609,18 @@ describe("onPullForwardAccepted", () => {
 // ── onTechArrived ────────────────────────────────────────────────────────────
 
 describe("onTechArrived", () => {
-  it("enqueues estimate prompt to technician", async () => {
+  it("enqueues customer arrival notification", async () => {
     const state = freshCommState();
     state.jobs.set("job-1", makeJob());
     const db = createInMemoryCommDb(state);
 
     const msg = await onTechArrived("job-1", db, makeClock(), makeAiGenerator());
 
-    expect(msg.purpose).toBe("scheduling_tech_estimate_prompt");
-    expect(msg.audience).toBe("technician");
+    expect(msg.purpose).toBe("scheduling_arrival");
+    expect(msg.audience).toBe("customer");
   });
 
-  it("includes service type context in fallback", async () => {
+  it("includes service type in fallback", async () => {
     const state = freshCommState();
     state.jobs.set("job-1", makeJob());
     const db = createInMemoryCommDb(state);
@@ -625,6 +628,161 @@ describe("onTechArrived", () => {
     const msg = await onTechArrived("job-1", db, makeClock(), makeAiGenerator(false));
 
     expect(msg.content).toContain("HVAC Repair");
+  });
+
+  it("is urgent (not quiet-hours restricted)", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await onTechArrived("job-1", db, makeClock(), makeAiGenerator());
+
+    expect(msg.isUrgent).toBe(true);
+    expect(msg.quietHoursRestricted).toBe(false);
+  });
+
+  it("does NOT send tech estimate prompt (moved to worker checkpoints)", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    await onTechArrived("job-1", db, makeClock(), makeAiGenerator());
+
+    const techMsgs = activeMsgs(state).filter((m) => m.audience === "technician");
+    expect(techMsgs).toHaveLength(0);
+  });
+});
+
+// ── sendEstimatePrompt / sendEstimateReminder ────────────────────────────────
+
+describe("sendEstimatePrompt", () => {
+  it("enqueues tech estimate prompt with 30-min dedupeKey", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await sendEstimatePrompt("job-1", db, makeClock(), makeAiGenerator());
+
+    expect(msg.purpose).toBe("scheduling_tech_estimate_prompt");
+    expect(msg.audience).toBe("technician");
+    expect(msg.dedupeKey).toBe("scheduling_tech_estimate_prompt:job-1:estimate_prompt_30");
+  });
+
+  it("includes service type in fallback", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await sendEstimatePrompt("job-1", db, makeClock(), makeAiGenerator(false));
+
+    expect(msg.content).toContain("HVAC Repair");
+  });
+});
+
+describe("sendEstimateReminder", () => {
+  it("enqueues tech estimate reminder with 60-min dedupeKey", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await sendEstimateReminder("job-1", db, makeClock(), makeAiGenerator());
+
+    expect(msg.purpose).toBe("scheduling_tech_estimate_reminder");
+    expect(msg.audience).toBe("technician");
+    expect(msg.dedupeKey).toBe("scheduling_tech_estimate_prompt:job-1:estimate_prompt_60");
+  });
+
+  it("uses canned fallback when AI unavailable", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await sendEstimateReminder("job-1", db, makeClock(), makeAiGenerator(false));
+
+    expect(msg.content).toContain("quick update");
+  });
+});
+
+// ── onReviewRequested ────────────────────────────────────────────────────────
+
+describe("onReviewRequested", () => {
+  it("enqueues review request with review link", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await onReviewRequested("job-1", "https://g.page/review/test", db, makeClock(), makeAiGenerator());
+
+    expect(msg).not.toBeNull();
+    expect(msg!.purpose).toBe("scheduling_review_request");
+    expect(msg!.audience).toBe("customer");
+  });
+
+  it("uses review link in canned fallback", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await onReviewRequested("job-1", "https://g.page/review/test", db, makeClock(), makeAiGenerator(false));
+
+    expect(msg!.content).toContain("https://g.page/review/test");
+    expect(msg!.content).toContain("Cool Air Co");
+  });
+
+  it("returns null when review link is empty", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await onReviewRequested("job-1", "", db, makeClock(), makeAiGenerator());
+
+    expect(msg).toBeNull();
+  });
+
+  it("is quiet-hours restricted", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await onReviewRequested("job-1", "https://g.page/review/test", db, makeClock(), makeAiGenerator());
+
+    expect(msg!.quietHoursRestricted).toBe(true);
+  });
+});
+
+// ── onFollowUpCreated ────────────────────────────────────────────────────────
+
+describe("onFollowUpCreated", () => {
+  it("enqueues follow-up outreach to customer", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await onFollowUpCreated("job-1", db, makeClock(), makeAiGenerator());
+
+    expect(msg.purpose).toBe("scheduling_followup_outreach");
+    expect(msg.audience).toBe("customer");
+  });
+
+  it("includes service type and business name in fallback", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await onFollowUpCreated("job-1", db, makeClock(), makeAiGenerator(false));
+
+    expect(msg.content).toContain("HVAC Repair");
+    expect(msg.content).toContain("Cool Air Co");
+  });
+
+  it("is quiet-hours restricted", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await onFollowUpCreated("job-1", db, makeClock(), makeAiGenerator());
+
+    expect(msg.quietHoursRestricted).toBe(true);
   });
 });
 
@@ -717,6 +875,7 @@ describe("buildCannedTemplate", () => {
     "scheduling_confirmation",
     "scheduling_morning_reminder",
     "scheduling_en_route",
+    "scheduling_arrival",
     "scheduling_completion",
     "scheduling_delay_notice",
     "scheduling_window_change",
@@ -724,7 +883,10 @@ describe("buildCannedTemplate", () => {
     "scheduling_pull_forward_offer",
     "scheduling_pull_forward_accepted",
     "scheduling_tech_estimate_prompt",
+    "scheduling_tech_estimate_reminder",
     "scheduling_completion_note_prompt",
+    "scheduling_review_request",
+    "scheduling_followup_outreach",
     "scheduling_sick_tech_notice",
   ];
 
@@ -745,6 +907,9 @@ describe("buildCannedTemplate", () => {
     const enRoute = buildCannedTemplate("scheduling_en_route");
     expect(enRoute.variables).toContain("etaMinutes");
 
+    const arrival = buildCannedTemplate("scheduling_arrival");
+    expect(arrival.variables).toContain("serviceType");
+
     const completion = buildCannedTemplate("scheduling_completion");
     expect(completion.variables).toContain("businessPhone");
 
@@ -756,6 +921,14 @@ describe("buildCannedTemplate", () => {
 
     const sickTech = buildCannedTemplate("scheduling_sick_tech_notice");
     expect(sickTech.variables).toContain("originalDate");
+
+    const review = buildCannedTemplate("scheduling_review_request");
+    expect(review.variables).toContain("reviewLink");
+    expect(review.variables).toContain("businessName");
+
+    const followup = buildCannedTemplate("scheduling_followup_outreach");
+    expect(followup.variables).toContain("businessName");
+    expect(followup.variables).toContain("serviceType");
   });
 });
 
@@ -1007,22 +1180,33 @@ describe("customer-message safety", () => {
     expect(enRouteMsg.content).not.toContain("Tech tech-a");
   });
 
-  it("tech-facing message has audience=technician", async () => {
+  it("tech-facing sendEstimatePrompt has audience=technician", async () => {
+    const state = freshCommState();
+    state.jobs.set("job-1", makeJob());
+    const db = createInMemoryCommDb(state);
+
+    const msg = await sendEstimatePrompt("job-1", db, makeClock(), makeAiGenerator());
+
+    expect(msg.audience).toBe("technician");
+    expect(msg.purpose).toBe("scheduling_tech_estimate_prompt");
+  });
+
+  it("onTechArrived sends customer-facing message (not tech-facing)", async () => {
     const state = freshCommState();
     state.jobs.set("job-1", makeJob());
     const db = createInMemoryCommDb(state);
 
     const msg = await onTechArrived("job-1", db, makeClock(), makeAiGenerator());
 
-    expect(msg.audience).toBe("technician");
-    expect(msg.purpose).toBe("scheduling_tech_estimate_prompt");
+    expect(msg.audience).toBe("customer");
+    expect(msg.purpose).toBe("scheduling_arrival");
   });
 });
 
 // ── Edge Case Tests ─────────────────────────────────────────────────────────
 
 describe("edge cases", () => {
-  it("onJobCompleted cancels only obsolete messages, new completion + note_prompt remain", async () => {
+  it("onJobCompleted cancels only obsolete messages, completion remains", async () => {
     const state = freshCommState();
     state.jobs.set("job-1", makeJob());
     const db = createInMemoryCommDb(state);
@@ -1038,9 +1222,9 @@ describe("edge cases", () => {
     // morning_reminder and en_route canceled; confirmation survives (not in cancel list for completion)
     expect(activeByPurpose(state, "scheduling_morning_reminder")).toHaveLength(0);
     expect(activeByPurpose(state, "scheduling_en_route")).toHaveLength(0);
-    // New messages present
+    // Customer completion present, no tech completion_note_prompt (removed)
     expect(activeByPurpose(state, "scheduling_completion")).toHaveLength(1);
-    expect(activeByPurpose(state, "scheduling_completion_note_prompt")).toHaveLength(1);
+    expect(activeByPurpose(state, "scheduling_completion_note_prompt")).toHaveLength(0);
   });
 
   it("onTechEnRoute replaces prior drift messages without duplicating", async () => {
@@ -1084,14 +1268,14 @@ describe("edge cases", () => {
     expect(msg.channel).toBe("sms"); // fallback channel
   });
 
-  it("missing technician info on tech-facing prompt: message still created with null phone", async () => {
+  it("missing technician info on sendEstimatePrompt: message still created with null phone", async () => {
     const state = freshCommState();
     state.jobs.set("job-1", makeJob({ technicianId: "unknown-tech" }));
     const db = createInMemoryCommDb(state);
     // Override to return null for unknown tech
     db.getTechnicianInfo = async () => null;
 
-    const msg = await onTechArrived("job-1", db, makeClock(), makeAiGenerator());
+    const msg = await sendEstimatePrompt("job-1", db, makeClock(), makeAiGenerator());
 
     expect(msg.audience).toBe("technician");
     expect(msg.recipientPhone).toBeNull();
@@ -1128,9 +1312,9 @@ describe("edge cases", () => {
     expect(custCompletion!.content).not.toContain("tech-a");
   });
 
-  it("onJobCompleted with no technician skips tech message", async () => {
+  it("onJobCompleted returns only customer message (no tech prompt)", async () => {
     const state = freshCommState();
-    state.jobs.set("job-1", makeJob({ technicianId: null }));
+    state.jobs.set("job-1", makeJob());
     const db = createInMemoryCommDb(state);
 
     const messages = await onJobCompleted("job-1", db, makeClock(), makeAiGenerator());
@@ -1166,7 +1350,7 @@ describe("edge cases", () => {
       .rejects.toThrow("Job not found");
   });
 
-  it("full lifecycle: book → remind → en_route → complete — correct message trail", async () => {
+  it("full lifecycle: book → remind → en_route → arrive → complete — correct message trail", async () => {
     const state = freshCommState();
     state.jobs.set("job-1", makeJob());
     const db = createInMemoryCommDb(state);
@@ -1174,14 +1358,16 @@ describe("edge cases", () => {
     await onJobBooked("job-1", db, makeClock(), makeAiGenerator());
     await onMorningReminderDue("job-1", db, makeClock(), makeAiGenerator());
     await onTechEnRoute("job-1", db, makeClock(), makeAiGenerator());
+    await onTechArrived("job-1", db, makeClock(), makeAiGenerator());
     await onJobCompleted("job-1", db, makeClock(), makeAiGenerator());
 
     // After completion: confirmation active, morning reminder canceled, en_route canceled,
-    // completion + completion_note_prompt active
+    // arrival active, completion active (no completion_note_prompt)
     expect(activeByPurpose(state, "scheduling_confirmation")).toHaveLength(1);
     expect(activeByPurpose(state, "scheduling_morning_reminder")).toHaveLength(0);
     expect(activeByPurpose(state, "scheduling_en_route")).toHaveLength(0);
+    expect(activeByPurpose(state, "scheduling_arrival")).toHaveLength(1);
     expect(activeByPurpose(state, "scheduling_completion")).toHaveLength(1);
-    expect(activeByPurpose(state, "scheduling_completion_note_prompt")).toHaveLength(1);
+    expect(activeByPurpose(state, "scheduling_completion_note_prompt")).toHaveLength(0);
   });
 });
