@@ -146,27 +146,18 @@ export default function JobDetailPage() {
       >
         <DetailRow label="Address" value={job.address_text} />
         <DetailRow
-          label="Appointment"
-          value={(() => {
-            const fmt = (dt: unknown) => {
-              if (!dt) return null;
-              const d = new Date(dt as string);
-              if (isNaN(d.getTime())) return null;
-              const h = d.getHours();
-              const m = d.getMinutes();
-              const p = h >= 12 ? "PM" : "AM";
-              const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-              return `${h12}:${m.toString().padStart(2, "0")} ${p}`;
-            };
-            const s = fmt(job.window_start);
-            const e = fmt(job.window_end);
-            return s && e ? `${s} – ${e} arrival window` : "Time TBD";
-          })()}
+          label="Scheduled"
+          value={
+            (job as any).job_start_time && (job as any).job_end_time
+              ? `${(job as any).job_start_time} – ${(job as any).job_end_time}`
+              : "Time TBD"
+          }
         />
         <DetailRow
-          label="Service Time"
-          value={`Diagnostic — ${job.estimated_duration_minutes - (job.drive_time_minutes || 0)} min on site`}
+          label="Service"
+          value={`${(job as any).is_follow_up ? "Follow-Up" : "Diagnostic"} — ${(job as any).service_duration_minutes ?? (job.estimated_duration_minutes - (job.drive_time_minutes || 0))} min on site`}
         />
+        <DetailRow label="Drive Time" value={`${job.drive_time_minutes || 15} min`} />
         {/* Customer contact info comes from conversations, not the customer record */}
         {job.job_notes && <DetailRow label="Notes" value={job.job_notes} />}
         {job.actual_duration_minutes && (

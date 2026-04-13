@@ -65,6 +65,7 @@ export const techDashboardRouter = createTRPCRouter({
       const dateStr = input?.date ?? new Date().toISOString().slice(0, 10);
       const targetDate = new Date(dateStr + "T00:00:00Z");
 
+      // Fetch jobs with follow-up estimates for return visits
       const jobs = await ctx.db.scheduling_jobs.findMany({
         where: {
           technician_id: ctx.technicianId,
@@ -98,11 +99,74 @@ export const techDashboardRouter = createTRPCRouter({
               },
             },
           },
+          follow_up_requests_return: {
+            select: {
+              estimated_low_minutes: true,
+              estimated_high_minutes: true,
+            },
+            take: 1,
+          },
         },
         orderBy: { queue_position: "asc" },
       });
 
-      return jobs.map((j) => ({
+      // Get tech's working hours to compute schedule timeline
+      const tech = await ctx.db.technicians.findUnique({
+        where: { id: ctx.technicianId },
+        select: { working_hours_start: true, lunch_start: true, lunch_end: true },
+      });
+      const workStartStr = tech?.working_hours_start ?? "08:00";
+      const lunchStartStr = tech?.lunch_start ?? "12:00";
+      const lunchEndStr = tech?.lunch_end ?? "13:00";
+      const parseHM = (s: string) => {
+        const [h, m] = s.split(":").map(Number) as [number, number];
+        return h * 60 + m;
+      };
+      const workStartMin = parseHM(workStartStr);
+      const lunchStartMin = parseHM(lunchStartStr);
+      const lunchEndMin = parseHM(lunchEndStr);
+
+      // Compute start/end times walking through the queue
+      let cursor = workStartMin;
+      const enriched = jobs.map((j) => {
+        // For follow-up jobs, use midpoint of tech's estimate
+        const followUp = j.follow_up_requests_return?.[0];
+        let serviceDuration: number;
+        if (followUp) {
+          serviceDuration = Math.round(
+            (followUp.estimated_low_minutes + followUp.estimated_high_minutes) / 2,
+          );
+        } else {
+          // Diagnostic or standard: service time = total cost - drive
+          serviceDuration = j.estimated_duration_minutes - (j.drive_time_minutes || 0);
+        }
+        const driveTime = j.drive_time_minutes || 15;
+
+        // Skip lunch if cursor is in lunch
+        if (cursor >= lunchStartMin && cursor < lunchEndMin) {
+          cursor = lunchEndMin;
+        }
+
+        const jobStart = cursor;
+        const jobEnd = jobStart + serviceDuration;
+
+        // Advance cursor: job duration + drive to next
+        cursor = jobEnd + driveTime;
+        // Skip lunch if drive pushed us into it
+        if (cursor > lunchStartMin && cursor < lunchEndMin) {
+          cursor = lunchEndMin;
+        }
+
+        // Format times as "H:MM AM/PM"
+        const fmtTime = (mins: number) => {
+          const h24 = Math.floor(mins / 60);
+          const m = mins % 60;
+          const p = h24 >= 12 ? "PM" : "AM";
+          const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+          return `${h12}:${m.toString().padStart(2, "0")} ${p}`;
+        };
+
+        return {
           ...j,
           customer_phone: resolvePhone(
             j.customers?.customer_contacts ?? [],
@@ -112,7 +176,15 @@ export const techDashboardRouter = createTRPCRouter({
             j.appointments?.conversations?.cached_summary
             ?? j.customers?.conversations?.[0]?.cached_summary
             ?? null,
-      }));
+          // Computed schedule fields
+          job_start_time: fmtTime(jobStart),
+          job_end_time: fmtTime(jobEnd),
+          service_duration_minutes: serviceDuration,
+          is_follow_up: !!followUp,
+        };
+      });
+
+      return enriched;
     }),
 
   /** Update job status for non-completion transitions (en route, arrived, in progress).
@@ -447,6 +519,13 @@ export const techDashboardRouter = createTRPCRouter({
               },
             },
           },
+          follow_up_requests_return: {
+            select: {
+              estimated_low_minutes: true,
+              estimated_high_minutes: true,
+            },
+            take: 1,
+          },
         },
       });
 
@@ -455,6 +534,68 @@ export const techDashboardRouter = createTRPCRouter({
           code: "NOT_FOUND",
           message: "Job not found",
         });
+      }
+
+      // Compute schedule times by walking the full queue for this date
+      const allJobs = await ctx.db.scheduling_jobs.findMany({
+        where: {
+          technician_id: ctx.technicianId,
+          scheduled_date: job.scheduled_date,
+        },
+        include: {
+          follow_up_requests_return: {
+            select: { estimated_low_minutes: true, estimated_high_minutes: true },
+            take: 1,
+          },
+        },
+        orderBy: { queue_position: "asc" },
+      });
+
+      const techRow = await ctx.db.technicians.findUnique({
+        where: { id: ctx.technicianId },
+        select: { working_hours_start: true, lunch_start: true, lunch_end: true },
+      });
+      const parseHM = (s: string) => {
+        const [h, m] = s.split(":").map(Number) as [number, number];
+        return h * 60 + m;
+      };
+      const wsMin = parseHM(techRow?.working_hours_start ?? "08:00");
+      const lsMin = parseHM(techRow?.lunch_start ?? "12:00");
+      const leMin = parseHM(techRow?.lunch_end ?? "13:00");
+
+      let cursor = wsMin;
+      let jobStartTime = "Time TBD";
+      let jobEndTime = "Time TBD";
+      let serviceDurationMinutes = job.estimated_duration_minutes - (job.drive_time_minutes || 0);
+      let isFollowUp = false;
+
+      for (const qj of allJobs) {
+        const fu = qj.follow_up_requests_return?.[0];
+        const sd = fu
+          ? Math.round((fu.estimated_low_minutes + fu.estimated_high_minutes) / 2)
+          : qj.estimated_duration_minutes - (qj.drive_time_minutes || 0);
+        const dt = qj.drive_time_minutes || 15;
+
+        if (cursor >= lsMin && cursor < leMin) cursor = leMin;
+        const start = cursor;
+        const end = start + sd;
+        cursor = end + dt;
+        if (cursor > lsMin && cursor < leMin) cursor = leMin;
+
+        if (qj.id === job.id) {
+          const fmtTime = (mins: number) => {
+            const h24 = Math.floor(mins / 60);
+            const mm = mins % 60;
+            const p = h24 >= 12 ? "PM" : "AM";
+            const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+            return `${h12}:${mm.toString().padStart(2, "0")} ${p}`;
+          };
+          jobStartTime = fmtTime(start);
+          jobEndTime = fmtTime(end);
+          serviceDurationMinutes = sd;
+          isFollowUp = !!fu;
+          break;
+        }
       }
 
       return {
@@ -467,6 +608,10 @@ export const techDashboardRouter = createTRPCRouter({
           job.appointments?.conversations?.cached_summary
           ?? job.customers?.conversations?.[0]?.cached_summary
           ?? null,
+        job_start_time: jobStartTime,
+        job_end_time: jobEndTime,
+        service_duration_minutes: serviceDurationMinutes,
+        is_follow_up: isFollowUp,
       };
     }),
 

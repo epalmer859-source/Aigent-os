@@ -495,20 +495,12 @@ function JobCard({
   const address = job.address_text as string | null;
   const summary = (job.job_summary || job.service_types?.name || "\u2014") as string;
 
-  // Format customer arrival window for display
-  const formatWindowTime = (dt: string | Date | null | undefined): string | null => {
-    if (!dt) return null;
-    const d = new Date(dt);
-    if (isNaN(d.getTime())) return null;
-    const h = d.getHours();
-    const m = d.getMinutes();
-    const period = h >= 12 ? "PM" : "AM";
-    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-    return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
-  };
-  const windowStartStr = formatWindowTime(job.window_start);
-  const windowEndStr = formatWindowTime(job.window_end);
-  const windowLabel = windowStartStr && windowEndStr ? `${windowStartStr} – ${windowEndStr}` : null;
+  // Schedule times computed server-side
+  const jobTimeLabel = (job.job_start_time && job.job_end_time)
+    ? `${job.job_start_time} – ${job.job_end_time}`
+    : "Time TBD";
+  const serviceDuration = job.service_duration_minutes as number | undefined;
+  const isFollowUp = job.is_follow_up as boolean | undefined;
 
   return (
     <div
@@ -536,7 +528,7 @@ function JobCard({
             {customerName}
           </p>
           <p className="truncate text-xs" style={{ color: "var(--t3)" }}>
-            {windowLabel ?? "Time TBD"} &middot; {job.service_types?.name ?? "Service"}
+            {jobTimeLabel} &middot; {isFollowUp ? "Follow-Up" : (job.service_types?.name ?? "Service")}
           </p>
         </div>
         <span
@@ -596,17 +588,17 @@ function JobCard({
             </div>
           </div>
 
-          {/* Appointment window + service time */}
+          {/* Schedule time + service duration */}
           <div className="flex items-center gap-2">
             <svg className="h-4 w-4 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" /></svg>
-            <span className="text-sm" style={{ color: "var(--t2)" }}>
-              {windowLabel ? `Arrival window: ${windowLabel}` : "Time TBD"}
+            <span className="text-sm font-medium" style={{ color: "var(--t1)" }}>
+              {jobTimeLabel}
             </span>
           </div>
           <div className="flex items-center gap-2">
             <svg className="h-4 w-4 shrink-0" style={{ color: "var(--t3)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" /></svg>
             <span className="text-sm" style={{ color: "var(--t2)" }}>
-              Diagnostic &middot; {job.estimated_duration_minutes - (job.drive_time_minutes || 0)} min on site
+              {isFollowUp ? "Follow-Up" : "Diagnostic"} &middot; {serviceDuration ?? 90} min on site &middot; {job.drive_time_minutes || 15} min drive
             </span>
           </div>
 
