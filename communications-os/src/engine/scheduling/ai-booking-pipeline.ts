@@ -72,6 +72,8 @@ export interface BookSlotInput {
 export interface BookSlotDeps {
   bookingDb: BookingOrchestratorDb;
   generateId: () => string;
+  /** Optional: tech profile for window-availability verification at booking time. */
+  getTechCandidate?: (technicianId: string) => Promise<TechCandidate | null>;
 }
 
 export type BookSlotResult =
@@ -409,8 +411,39 @@ export async function bookSelectedSlot(
   const jobId = deps.generateId();
   const scheduledDate = new Date(slot.date + "T00:00:00");
 
+  // Re-verify the time window is still available against the CURRENT queue.
+  // Slots may have been generated minutes ago — another booking could have
+  // claimed this window in the meantime.
+  if (deps.getTechCandidate) {
+    const tech = await deps.getTechCandidate(slot.technicianId);
+    if (tech) {
+      const currentQueue = await deps.bookingDb.getQueueForTechDate(
+        slot.technicianId,
+        scheduledDate,
+      );
+      const currentWindows = computeAvailableWindows(
+        currentQueue,
+        tech,
+        slot.totalCostMinutes,
+      );
+      const slotStartMin = parseHHMM(slot.windowStart);
+      // Check if at least one available window still covers this slot's start time.
+      // We match on the tech-arrival time (window.startMinutes) because that's what
+      // drives the customer-facing window calculation.
+      const windowStillOpen = currentWindows.some(
+        (w) => {
+          const customerWindowStart = roundTo15(w.startMinutes + 60);
+          return formatTime24(customerWindowStart) === slot.windowStart;
+        },
+      );
+      if (!windowStillOpen) {
+        return { booked: false, reason: "slot_no_longer_available" };
+      }
+    }
+  }
+
   const techHomeBase: Coordinates = {
-    lat: 0, // Not critical for booking — position is already determined
+    lat: 0,
     lng: 0,
   };
 
@@ -448,6 +481,10 @@ export async function bookSelectedSlot(
   );
 
   if (!outcome.success) {
+    // Translate opaque queue errors into actionable responses
+    if (outcome.reason === "invalid_queue_position") {
+      return { booked: false, reason: "slot_no_longer_available" };
+    }
     return { booked: false, reason: `Booking failed: ${outcome.reason}` };
   }
 

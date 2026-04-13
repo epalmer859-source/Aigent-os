@@ -325,26 +325,23 @@ describe("findRebookSlot", () => {
     expect(dateKey(slot!.date)).toBe(dateKey(DAY2));
   });
 
-  it("respects queue insertion validity", async () => {
+  it("skips day when capacity is full", async () => {
     const tech = makeTechCandidate("tech-a");
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
 
-    // Fill the queue on day 1 with all locked jobs so insertion is blocked
-    const lockedQueue: QueuedJob[] = [
-      { id: "locked-1", queuePosition: 0, status: "EN_ROUTE", timePreference: "NO_PREFERENCE", addressLat: 33.8, addressLng: -84.4, manualPosition: false, estimatedDurationMinutes: 120, driveTimeMinutes: 15 },
-      { id: "locked-2", queuePosition: 1, status: "IN_PROGRESS", timePreference: "NO_PREFERENCE", addressLat: 33.8, addressLng: -84.4, manualPosition: false, estimatedDurationMinutes: 120, driveTimeMinutes: 15 },
-      { id: "locked-3", queuePosition: 2, status: "ARRIVED", timePreference: "NO_PREFERENCE", addressLat: 33.8, addressLng: -84.4, manualPosition: false, estimatedDurationMinutes: 120, driveTimeMinutes: 15 },
-    ];
-    state.queues.set(`tech-a:${dateKey(DAY1)}`, lockedQueue);
-
+    // Fill capacity on day 1 so no more jobs can fit.
+    // Tech has 510 available minutes (08:00-17:00 minus 30min lunch).
+    // Reserve all of it.
     const db = createInMemoryRebookDb(profiles, state);
+    await importedReserveCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
+
     const job = makeJob();
     const osrm = mockOsrmDeps();
 
     const slot = await findRebookSlot(job, [tech], BUSINESS_DAYS, db, osrm);
 
-    // Day 1 queue is all locked → no valid insertion points → skips to day 2
+    // Day 1 is at capacity → skips to day 2
     expect(slot).not.toBeNull();
     expect(dateKey(slot!.date)).toBe(dateKey(DAY2));
   });
@@ -897,25 +894,18 @@ describe("capacity accounting — move semantics", () => {
 // ── Multi-candidate same-day fallback ───────────────────────────────────────
 
 describe("multi-candidate same-day fallback", () => {
-  it("second same-day candidate succeeds when first fails queue insertion", async () => {
+  it("second same-day candidate used when first has no capacity", async () => {
     const techB = makeTechCandidate("tech-b");
     const techC = makeTechCandidate("tech-c");
 
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-b"), makeTechProfile("tech-c")];
     const state = freshState();
 
-    // tech-b has capacity but a locked-only queue → insertion fails
-    const lockedQueue: QueuedJob[] = [
-      { id: "locked-1", queuePosition: 0, status: "EN_ROUTE", timePreference: "NO_PREFERENCE", addressLat: 33.8, addressLng: -84.4, manualPosition: false, estimatedDurationMinutes: 120, driveTimeMinutes: 15 },
-      { id: "locked-2", queuePosition: 1, status: "IN_PROGRESS", timePreference: "NO_PREFERENCE", addressLat: 33.8, addressLng: -84.4, manualPosition: false, estimatedDurationMinutes: 120, driveTimeMinutes: 15 },
-      { id: "locked-3", queuePosition: 2, status: "ARRIVED", timePreference: "NO_PREFERENCE", addressLat: 33.8, addressLng: -84.4, manualPosition: false, estimatedDurationMinutes: 120, driveTimeMinutes: 15 },
-    ];
-    state.queues.set(`tech-b:${dateKey(TODAY)}`, lockedQueue);
-
-    // tech-c has capacity and an empty queue → insertion succeeds
+    // tech-b has NO capacity (fully reserved) → falls through to tech-c
     state.techsByBusiness.set("biz-1", [techB, techC]);
 
     const db = createInMemoryRebookDb(profiles, state);
+    await importedReserveCapacity("tech-b", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
     const osrm = mockOsrmDeps();
 
     const job = makeJob({ jobId: "job-1", status: "NOT_STARTED", totalCostMinutes: 60 });

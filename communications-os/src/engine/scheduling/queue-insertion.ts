@@ -75,17 +75,19 @@ export function getValidInsertionPoints(
     firstUnlocked++;
   }
 
-  // If everything is locked, no valid positions
+  // All existing jobs are locked — can only append at the end.
+  // Locked jobs are immovable but we can still add after them.
   if (firstUnlocked === queue.length) {
-    // Can still insert at the end if the end is after all locked jobs
-    // But locked means immovable — we can only go after them
-    // Actually, if ALL jobs are locked, the only valid spot is the end
-    // But the spec says locked jobs cannot be reordered, and inserting
-    // after all of them is valid.
-    // However, if all are in terminal/active states, the queue is frozen.
-    // Let's check: if all are locked, we can insert at the end.
-    // Wait — re-read: "all positions locked -> []" per test spec.
-    return [];
+    const endPos = queue.length;
+    const cutoff = morningCutoffPosition ?? queue.length;
+    switch (newJob.timePreference) {
+      case "MORNING":
+        return endPos < cutoff ? [endPos] : [];
+      case "AFTERNOON":
+        return endPos >= cutoff ? [endPos] : [];
+      default:
+        return [endPos];
+    }
   }
 
   // Collect all candidate positions from firstUnlocked to queue.length

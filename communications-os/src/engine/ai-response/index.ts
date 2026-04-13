@@ -751,6 +751,27 @@ async function _generateAIResponseFromDb(
             }, {
               bookingDb,
               generateId: () => randomUUID(),
+              async getTechCandidate(technicianId: string) {
+                const t = await db.technicians.findUnique({
+                  where: { id: technicianId },
+                  include: { skill_tags: true },
+                });
+                if (!t) return null;
+                return {
+                  id: t.id,
+                  businessId: t.business_id,
+                  name: t.name,
+                  homeBaseLat: t.home_base_lat,
+                  homeBaseLng: t.home_base_lng,
+                  skillTags: t.skill_tags.map((s: { service_type_id: string }) => s.service_type_id),
+                  workingHoursStart: t.working_hours_start,
+                  workingHoursEnd: t.working_hours_end,
+                  lunchStart: t.lunch_start,
+                  lunchEnd: t.lunch_end,
+                  overtimeCapMinutes: t.overtime_cap_minutes,
+                  isActive: t.is_active,
+                };
+              },
             });
 
             if (result.booked) {
@@ -804,9 +825,66 @@ async function _generateAIResponseFromDb(
                 });
               }
             } else {
-              bookingResponseOverride = `That slot is no longer available — someone else may have grabbed it. Let me check for updated availability.`;
+              console.warn("[ai-response] STEP 2 booking failed:", result.reason, "— re-generating slots");
               effectiveDecision.proposed_state_change = null;
-              console.warn("[ai-response] STEP 2 booking failed:", result.reason);
+
+              // Re-generate slots immediately so the customer doesn't have to wait another turn
+              try {
+                const capacityDb = createCapacityDb(db);
+                const regenDeps = {
+                  capacityDb,
+                  async getTechCandidates(bizId: string) {
+                    const techs = await db.technicians.findMany({
+                      where: { business_id: bizId, is_active: true },
+                      include: { skill_tags: true },
+                    });
+                    return techs.map((t) => ({
+                      id: t.id, businessId: t.business_id, name: t.name,
+                      homeBaseLat: t.home_base_lat, homeBaseLng: t.home_base_lng,
+                      skillTags: t.skill_tags.map((s: { service_type_id: string }) => s.service_type_id),
+                      workingHoursStart: t.working_hours_start, workingHoursEnd: t.working_hours_end,
+                      lunchStart: t.lunch_start, lunchEnd: t.lunch_end,
+                      overtimeCapMinutes: t.overtime_cap_minutes, isActive: t.is_active,
+                    }));
+                  },
+                  async getDiagnosticMinutes(bizId: string) {
+                    const { getDiagnosticTime } = await import("~/engine/scheduling/service-estimates");
+                    return getDiagnosticTime(db as any, bizId);
+                  },
+                  async getDiagnosticServiceTypeId(bizId: string) {
+                    const row = await db.service_types.findFirst({ where: { business_id: bizId }, select: { id: true } });
+                    if (!row) throw new Error(`No service types for business ${bizId}`);
+                    return row.id;
+                  },
+                  async getQueueForTechDate(technicianId: string, date: Date) {
+                    const { createBookingOrchestratorDb: createBODb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+                    return createBODb(db).getQueueForTechDate(technicianId, date);
+                  },
+                };
+
+                const regenResult = await generateAvailableSlots({
+                  businessId,
+                  serviceDescription,
+                  availabilityPreference: availabilityPref,
+                  availabilityCutoffTime: null,
+                }, regenDeps);
+
+                if (regenResult.success) {
+                  await db.conversations.update({
+                    where: { id: conversationId },
+                    data: { pending_booking_slots: regenResult.slots as never },
+                  });
+                  const slotLines = regenResult.slots.map((s) => `${s.index}. ${s.label}`);
+                  bookingResponseOverride = `That slot is no longer available — someone else grabbed it. Here are the current openings:\n\n${slotLines.join("\n")}\n\nWhich one works for you?`;
+                } else {
+                  bookingResponseOverride = "That slot is no longer available and I couldn't find other openings right now. Let me have someone from the team reach out to you directly.";
+                  effectiveDecision.handoff_required = true;
+                  effectiveDecision.handoff_reason = `Booking failed (${result.reason}) and slot re-generation found no slots`;
+                }
+              } catch (regenErr) {
+                console.error("[ai-response] STEP 2 — slot re-generation failed:", regenErr);
+                bookingResponseOverride = "That slot is no longer available. Let me check for updated times — one moment.";
+              }
             }
           }
         }

@@ -194,12 +194,23 @@ describe("getValidInsertionPoints", () => {
     expect(manualIds).toEqual(["manual-1", "manual-2"]); // order preserved
   });
 
-  it("all positions locked -> []", () => {
+  it("all positions locked -> can append at end for SOONEST", () => {
     const queue = [
       makeQueuedJob({ queuePosition: 0, status: "EN_ROUTE" }),
       makeQueuedJob({ queuePosition: 1, status: "IN_PROGRESS" }),
     ];
     const result = getValidInsertionPoints(queue, makeNewJob());
+    expect(result).toEqual([2]); // append after all locked jobs
+  });
+
+  it("all positions locked + MORNING preference -> [] when past morning cutoff", () => {
+    const queue = [
+      makeQueuedJob({ queuePosition: 0, status: "COMPLETED" }),
+      makeQueuedJob({ queuePosition: 1, status: "COMPLETED" }),
+    ];
+    // morningCutoffPosition = 1 means position 2 (end) is NOT < 1
+    const newJob = makeNewJob({ timePreference: "MORNING" });
+    const result = getValidInsertionPoints(queue, newJob, 1);
     expect(result).toEqual([]);
   });
 });
@@ -305,7 +316,7 @@ describe("findOptimalPosition", () => {
     expect(result.position).toBe(0); // earliest with same score
   });
 
-  it("returns invalid when no positions available", async () => {
+  it("all locked -> appends at end for SOONEST", async () => {
     const queue = [
       makeQueuedJob({ queuePosition: 0, status: "EN_ROUTE" }),
       makeQueuedJob({ queuePosition: 1, status: "IN_PROGRESS" }),
@@ -314,6 +325,20 @@ describe("findOptimalPosition", () => {
     const osrm = mockOsrmDeps(10);
 
     const result = await findOptimalPosition(queue, newJob, HOME_BASE, osrm);
+    expect(result.valid).toBe(true);
+    expect(result.position).toBe(2); // appended after all locked jobs
+  });
+
+  it("returns invalid when MORNING + all locked past cutoff", async () => {
+    const queue = [
+      makeQueuedJob({ queuePosition: 0, status: "COMPLETED" }),
+      makeQueuedJob({ queuePosition: 1, status: "COMPLETED" }),
+    ];
+    const newJob = makeNewJob({ timePreference: "MORNING" });
+    const osrm = mockOsrmDeps(10);
+
+    // morningCutoffPosition = 1 means position 2 is past morning
+    const result = await findOptimalPosition(queue, newJob, HOME_BASE, osrm, 1);
     expect(result.valid).toBe(false);
     expect(result.position).toBe(-1);
     expect(result.reason).toBe("no_valid_position");
