@@ -154,39 +154,15 @@ const GENERIC_PROHIBITIONS: string[] = [
   "Never share other customers' information.",
 ];
 
-// ── Scheduling availability rule ─────────────────────────────
-
-const SCHEDULING_AVAILABILITY_RULE = `-- SCHEDULING AVAILABILITY RULE (mandatory) --
-Whenever scheduling or availability comes up — whether you are starting to book, confirming timing, or the customer asks when you can come — you MUST present this exact list every time, word for word, before asking anything else about timing:
-
-"What availability works best for you?
-• Soonest available
-• Mornings only
-• Afternoons only
-• No preference
-• Anything specific we should know about your availability?"
-
-Do not paraphrase, shorten, or skip this list. Do not ask a vague question like "when works for you?" — always show the full list above.
-
-FOLLOW-UP FOR MORNINGS/AFTERNOONS:
-If the customer selects "Mornings only", ask ONE follow-up: "What's the latest you'd be available? For example, by noon, by 1 PM, by 2 PM?"
-If the customer selects "Afternoons only", ask ONE follow-up: "What's the earliest you'd be available? For example, after 11 AM, after noon, after 1 PM?"
-Parse their response into a 24-hour time string and set "availability_cutoff_time" in your JSON response (e.g. "12:00", "13:00", "14:00").
-Examples: "by 1" → "13:00", "before 1pm" → "13:00", "no later than 2" → "14:00", "after 11 AM" → "11:00", "noon" → "12:00", "1 o'clock" → "13:00".
-If the customer gives a vague answer like "I don't care", "whenever", or "doesn't matter", set availability_cutoff_time to "12:00" (noon default).
-Do NOT ask this follow-up for "Soonest available" or "No preference" — skip straight to the next field.
-Only ask the cutoff question ONCE — do not re-ask if the customer already answered it.`;
-
 const AUTOMATIC_SCHEDULING_RULE = `-- AUTOMATIC SCHEDULING — TWO-STEP FLOW (mandatory) --
 The booking process has TWO steps. Follow them exactly.
 
 STEP 1 — GENERATE SLOTS:
-When you have collected ALL FIVE of the following:
+When you have collected ALL FOUR of the following:
 1. Full name
 2. Phone number
 3. Service description (what they need done)
 4. Service address
-5. Scheduling preference (from the availability list above)
 
 And the customer has explicitly confirmed they want to proceed:
 - Set "bookingConfirmed": true
@@ -194,7 +170,12 @@ And the customer has explicitly confirmed they want to proceed:
 - Set "proposed_state_change": null (stay in booking_in_progress — do NOT set to "booked")
 - Write a brief placeholder in response_text (e.g. "Let me check our availability...")
 
-The system will generate available time slots and REPLACE your response_text with a numbered list of options showing specific times and technicians. The customer will then pick one.
+Do NOT ask the customer for a scheduling preference before generating slots. Show them the soonest available options immediately. The system will generate the 10 soonest time slots and present them as a numbered list with specific times and technicians. The times shown are estimated windows for the technician's arrival, not for the full duration of the job.
+
+If the customer says the times don't work, or asks for mornings only, afternoons only, or a specific day, THEN ask follow-up questions to narrow it down:
+- If they want mornings: "What's the latest you'd be available? For example, by noon, by 1 PM, by 2 PM?"
+- If they want afternoons: "What's the earliest you'd be available? For example, after 11 AM, after noon, after 1 PM?"
+Parse their response into a 24-hour time string and set "availability_cutoff_time" (e.g. "12:00", "13:00", "14:00") and "availability_preference" (e.g. "Mornings only", "Afternoons only") in your JSON, then set bookingConfirmed: true again to regenerate filtered slots.
 
 STEP 2 — BOOK SELECTED SLOT:
 When the customer replies with their choice (e.g. "option 2", "the Monday one", "3"):
@@ -212,6 +193,7 @@ CRITICAL — DO NOT:
 - Write your own slot list or booking confirmation — the system generates both
 - Set bookingConfirmed before the customer explicitly confirms
 - Set selectedSlot unless the customer has picked from a presented slot list
+- Ask the customer for a scheduling preference BEFORE showing them slots — show slots first
 
 If you do NOT set bookingConfirmed: true when the customer confirms, NO slots will be generated and the customer will be left waiting.
 If you do NOT set selectedSlot when the customer picks, the booking will NOT happen.`;
@@ -237,11 +219,11 @@ const UNIVERSAL_RULES = [
 
 const STATE_INSTRUCTIONS: Record<string, string> = {
   new_lead:
-    "You are in intake mode. Follow this exact collection order: (1) full name and a number we can reach them at — ask for both together in one message if not already provided; (2) what service they need; (3) their address — set show_address_form to true in your JSON response when asking for the address; (4) scheduling availability — follow the SCHEDULING AVAILABILITY RULE exactly. Do not move to the next step until the current one is complete. Once you have all five (name, phone, service, address, availability preference), recap them for the customer and ask if everything looks good. If they confirm, follow STEP 1 of AUTOMATIC SCHEDULING: set bookingConfirmed to true, keep proposed_state_change null. The system will present available time slots.",
+    "You are in intake mode. Follow this exact collection order: (1) full name and a number we can reach them at — ask for both together in one message if not already provided; (2) what service they need; (3) their address — set show_address_form to true in your JSON response when asking for the address. Do not move to the next step until the current one is complete. Once you have all four (name, phone, service, address), recap them for the customer and ask if everything looks good. If they confirm, follow STEP 1 of AUTOMATIC SCHEDULING: set bookingConfirmed to true, keep proposed_state_change null. The system will immediately show the soonest available time slots.",
   lead_qualified:
-    "The lead is qualified. Continue gathering any missing details and move toward booking. If the customer's address has not been collected yet, ask for it now and set show_address_form to true in your JSON response so a form appears for them to fill in. When timing comes up, follow the SCHEDULING AVAILABILITY RULE exactly. Once you have all five (name, phone, service, address, availability preference), recap them for the customer and ask if everything looks good. If they confirm, follow STEP 1 of AUTOMATIC SCHEDULING: set bookingConfirmed to true, keep proposed_state_change null. The system will present available time slots.",
+    "The lead is qualified. Continue gathering any missing details and move toward booking. If the customer's address has not been collected yet, ask for it now and set show_address_form to true in your JSON response so a form appears for them to fill in. Once you have all four (name, phone, service, address), recap them for the customer and ask if everything looks good. If they confirm, follow STEP 1 of AUTOMATIC SCHEDULING: set bookingConfirmed to true, keep proposed_state_change null. The system will immediately show the soonest available time slots.",
   booking_in_progress:
-    "You are helping schedule an appointment. If the address has not been collected yet, ask for it and set show_address_form to true in your JSON response. Follow the SCHEDULING AVAILABILITY RULE to ask about timing. Do NOT recap anything mid-conversation. Once you have all five: name, phone, service, address, and availability preference — (1) Confirm everything back to the customer in one clean summary so they can review it. (2) Ask if there is anything else or any changes. If they say no or confirm everything looks good, follow STEP 1 of AUTOMATIC SCHEDULING: set bookingConfirmed to true, keep proposed_state_change null. The system will present available time slots for the customer to choose from. When the customer picks a slot, follow STEP 2: set selectedSlot to their choice number, set bookingConfirmed to true, set proposed_state_change to 'booked'. The system will book that exact slot.",
+    "You are helping schedule an appointment. If the address has not been collected yet, ask for it and set show_address_form to true in your JSON response. Do NOT recap anything mid-conversation. Once you have all four: name, phone, service, and address — (1) Confirm everything back to the customer in one clean summary so they can review it. (2) Ask if there is anything else or any changes. If they say no or confirm everything looks good, follow STEP 1 of AUTOMATIC SCHEDULING: set bookingConfirmed to true, keep proposed_state_change null. The system will immediately show the soonest available time slots for the customer to choose from. When the customer picks a slot, follow STEP 2: set selectedSlot to their choice number, set bookingConfirmed to true, set proposed_state_change to 'booked'. The system will book that exact slot.",
   quote_sent:
     "A quote has been sent to the customer. Follow up on their decision. Answer questions about the quote. Do not pressure — be helpful and let the quote speak for itself.",
   lead_followup_active:
@@ -277,7 +259,7 @@ const AI_DECISION_SCHEMA = `
   "selectedSlot": "number | null — set to the slot number (1-based) the customer picked from the presented list. Only set in STEP 2 when the customer has chosen a specific slot. null at all other times.",
   "collected_name": "string | null — the customer's full name if provided this turn, otherwise null",
   "collected_phone": "string | null — the customer's phone number if provided this turn, otherwise null",
-  "availability_preference": "string | null — scheduling preference if collected this turn (e.g. 'Soonest available', 'Mornings only'), otherwise null",
+  "availability_preference": "string | null — only set if the customer asks to filter slots after seeing the initial list (e.g. 'Mornings only', 'Afternoons only'), otherwise null",
   "collected_service_address": "string | null — the full service address if the customer provided it this turn (e.g. '123 Main St, Springfield, IL 62704'), otherwise null",
   "show_address_form": "boolean — set to true ONLY when you are asking the customer to provide their address. The web chat will display a structured form. Set to false at all other times."
 }`;
@@ -388,7 +370,6 @@ function _buildLayer3(
     "\n-- Universal AI Behavior Rules --",
     ...UNIVERSAL_RULES.map((r) => `• ${r}`),
     `• ${identityRule}`,
-    `\n${SCHEDULING_AVAILABILITY_RULE}`,
     `\n${AUTOMATIC_SCHEDULING_RULE}`,
     "\n-- Industry Capabilities --",
     ...capabilities.map((c) => `• ${c}`),

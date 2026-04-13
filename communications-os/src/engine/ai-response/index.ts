@@ -936,7 +936,7 @@ async function _generateAIResponseFromDb(
 
           // Format as numbered list
           const slotLines = slotResult.slots.map((s) => `${s.index}. ${s.label}`);
-          bookingResponseOverride = `Here are the available time slots:\n\n${slotLines.join("\n")}\n\nWhich option works best for you? Just reply with the number.`;
+          bookingResponseOverride = `Here are our soonest available appointments. The times shown are estimated windows for your technician's arrival, not the full length of the visit.\n\n${slotLines.join("\n")}\n\nWhich option works best for you? Just reply with the number, or let me know if you'd prefer a different time of day.`;
 
           // Force state to stay in booking_in_progress — do NOT transition to booked yet
           effectiveDecision.proposed_state_change = null;
