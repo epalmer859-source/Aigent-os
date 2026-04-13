@@ -40,6 +40,7 @@ function makeRequest(overrides: Partial<BookingRequest> = {}): BookingRequest {
     scheduledDate: DATE,
     timePreference: "NO_PREFERENCE",
     totalCostMinutes: 60,
+    driveTimeMinutes: 15,
     addressLat: 40.72,
     addressLng: -74.01,
     addressText: "123 Test St",

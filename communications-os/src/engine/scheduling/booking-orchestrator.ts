@@ -33,6 +33,7 @@ export interface BookingRequest {
   scheduledDate: Date;
   timePreference: TimePreference;
   totalCostMinutes: number;
+  driveTimeMinutes: number;
   addressLat: number;
   addressLng: number;
   addressText: string;
@@ -62,6 +63,7 @@ export interface BookingOrchestratorDb {
     queuePosition: number;
     timePreference: TimePreference;
     totalCostMinutes: number;
+    driveTimeMinutes: number;
     addressLat: number;
     addressLng: number;
     addressText: string;
@@ -165,6 +167,7 @@ export async function bookJob(
       queuePosition: insertion.position,
       timePreference: request.timePreference,
       totalCostMinutes: request.totalCostMinutes,
+      driveTimeMinutes: request.driveTimeMinutes,
       addressLat: request.addressLat,
       addressLng: request.addressLng,
       addressText: request.addressText,

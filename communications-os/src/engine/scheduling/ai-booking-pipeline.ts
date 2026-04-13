@@ -418,6 +418,9 @@ export async function bookSelectedSlot(
   const windowStart = parseSlotTime(slot.windowStart, scheduledDate);
   const windowEnd = parseSlotTime(slot.windowEnd, scheduledDate);
 
+  // V1: hardcoded 15 min drive time — matches slot generation
+  const driveTimeMinutes = 15;
+
   const bookingRequest: BookingRequest = {
     jobId,
     businessId,
@@ -427,6 +430,7 @@ export async function bookSelectedSlot(
     scheduledDate,
     timePreference: slot.timePreference,
     totalCostMinutes: slot.totalCostMinutes,
+    driveTimeMinutes,
     addressLat: 0, // V1: approximate — will be updated when geocoding is added
     addressLng: 0,
     addressText: input.addressText,

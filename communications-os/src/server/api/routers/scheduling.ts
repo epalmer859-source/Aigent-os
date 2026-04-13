@@ -119,6 +119,7 @@ export const schedulingRouter = createTRPCRouter({
         scheduledDate: z.string().datetime(),
         timePreference: z.enum(["MORNING", "AFTERNOON", "SOONEST", "NO_PREFERENCE"]),
         totalCostMinutes: z.number().int().positive(),
+        driveTimeMinutes: z.number().int().nonnegative().default(15),
         addressLat: z.number(),
         addressLng: z.number(),
         addressText: z.string().default(""),
