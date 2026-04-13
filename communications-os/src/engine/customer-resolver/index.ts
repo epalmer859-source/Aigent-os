@@ -581,8 +581,19 @@ async function _resolveCustomerFromDb(
           do_not_contact: false,
         },
       });
-      await tx.customer_contacts.create({
-        data: {
+      await tx.customer_contacts.upsert({
+        where: {
+          business_id_contact_type_contact_value: {
+            business_id: input.businessId,
+            contact_type: input.contactType,
+            contact_value: normalizedValue,
+          },
+        },
+        update: {
+          customer_id: cust.id,
+          is_primary: true,
+        },
+        create: {
           customer_id: cust.id,
           business_id: input.businessId,
           contact_type: input.contactType,
