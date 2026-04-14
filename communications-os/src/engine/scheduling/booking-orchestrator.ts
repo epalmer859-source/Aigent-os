@@ -39,6 +39,7 @@ export interface BookingRequest {
   addressLng: number;
   addressText: string;
   serviceType: string;
+  serviceDescription: string;
   technicianName: string;
   jobNotes?: string | null;
   windowStart?: Date | null;
@@ -207,7 +208,7 @@ export async function bookJob(
       durationMinutes: request.totalCostMinutes,
       address: request.addressText,
       technicianName: request.technicianName,
-      serviceType: request.serviceType,
+      serviceType: request.serviceDescription,
     });
 
     // 5. Create audit event

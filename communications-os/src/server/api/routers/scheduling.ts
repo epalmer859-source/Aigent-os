@@ -134,11 +134,17 @@ export const schedulingRouter = createTRPCRouter({
         select: { home_base_lat: true, home_base_lng: true, name: true },
       });
 
+      const svcType = await ctx.db.service_types.findUnique({
+        where: { id: input.serviceType },
+        select: { name: true },
+      });
+
       const request: BookingRequest = {
         ...input,
         businessId: ctx.businessId,
         scheduledDate: new Date(input.scheduledDate),
         technicianName: tech.name,
+        serviceDescription: svcType?.name ?? "Service appointment",
       };
 
       const result = await bookJob(
