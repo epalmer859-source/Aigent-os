@@ -131,13 +131,14 @@ export const schedulingRouter = createTRPCRouter({
 
       const tech = await ctx.db.technicians.findUniqueOrThrow({
         where: { id: input.technicianId },
-        select: { home_base_lat: true, home_base_lng: true },
+        select: { home_base_lat: true, home_base_lng: true, name: true },
       });
 
       const request: BookingRequest = {
         ...input,
         businessId: ctx.businessId,
         scheduledDate: new Date(input.scheduledDate),
+        technicianName: tech.name,
       };
 
       const result = await bookJob(

@@ -45,6 +45,7 @@ function makeRequest(overrides: Partial<BookingRequest> = {}): BookingRequest {
     addressLng: -74.01,
     addressText: "123 Test St",
     serviceType: "service-type-1",
+    technicianName: "Test Tech",
     ...overrides,
   };
 }
@@ -93,6 +94,9 @@ function createTestDb(
     },
     async createSchedulingJob(job) {
       jobs.push({ ...job } as unknown as CreatedJob);
+    },
+    async createAppointment() {
+      return "appt-test-id";
     },
     async createSchedulingEvent(event) {
       events.push({ ...event } as unknown as CreatedEvent);

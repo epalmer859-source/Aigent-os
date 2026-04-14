@@ -513,6 +513,7 @@ export async function bookSelectedSlot(
     addressLng: 0,
     addressText: input.addressText,
     serviceType: slot.serviceTypeId,
+    technicianName: slot.techName,
     jobNotes: input.serviceDescription || null,
     windowStart,
     windowEnd,

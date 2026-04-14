@@ -238,6 +238,24 @@ export function createBookingOrchestratorDb(prisma: PrismaClient): BookingOrches
       });
     },
 
+    async createAppointment(appt) {
+      const row = await prisma.appointments.create({
+        data: {
+          business_id: appt.businessId,
+          customer_id: appt.customerId,
+          scheduling_job_id: appt.schedulingJobId,
+          appointment_date: dateToDateOnly(appt.appointmentDate),
+          appointment_time: appt.appointmentTime,
+          duration_minutes: appt.durationMinutes,
+          address: appt.address || null,
+          technician_name: appt.technicianName,
+          service_type: appt.serviceType,
+          status: "booked",
+        },
+      });
+      return row.id;
+    },
+
     async createSchedulingEvent(event) {
       await prisma.scheduling_events.create({
         data: {

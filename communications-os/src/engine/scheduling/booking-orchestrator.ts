@@ -39,6 +39,7 @@ export interface BookingRequest {
   addressLng: number;
   addressText: string;
   serviceType: string;
+  technicianName: string;
   jobNotes?: string | null;
   windowStart?: Date | null;
   windowEnd?: Date | null;
@@ -76,6 +77,19 @@ export interface BookingOrchestratorDb {
     windowStart?: Date | null;
     windowEnd?: Date | null;
   }): Promise<void>;
+
+  /** Create an appointments row linked to this job. */
+  createAppointment(appt: {
+    businessId: string;
+    customerId: string;
+    schedulingJobId: string;
+    appointmentDate: Date;
+    appointmentTime: Date;
+    durationMinutes: number;
+    address: string;
+    technicianName: string;
+    serviceType: string;
+  }): Promise<string>;
 
   /** Create a scheduling_events audit row. */
   createSchedulingEvent(event: {
@@ -182,7 +196,21 @@ export async function bookJob(
       windowEnd: request.windowEnd ?? null,
     });
 
-    // 4. Create audit event
+    // 4. Create corresponding appointments record so the cancellation
+    //    pipeline (which queries appointments) can find this booking.
+    await tx.createAppointment({
+      businessId: request.businessId,
+      customerId: request.customerId,
+      schedulingJobId: request.jobId,
+      appointmentDate: request.scheduledDate,
+      appointmentTime: request.windowStart ?? request.scheduledDate,
+      durationMinutes: request.totalCostMinutes,
+      address: request.addressText,
+      technicianName: request.technicianName,
+      serviceType: request.serviceType,
+    });
+
+    // 5. Create audit event
     await tx.createSchedulingEvent({
       schedulingJobId: request.jobId,
       eventType: "status_change",
