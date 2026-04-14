@@ -1046,42 +1046,134 @@ async function _generateAIResponseFromDb(
     }
   }
 
-  // ── Cancellation Pipeline ──────────────────────────────────────────────────
+  // ── Cancellation Lookup — Step 1: Find appointments by phone ────────────────
+  // When the AI detects cancel intent and has a phone number, look up appointments
+  // and present them to the customer (like slot generation for booking).
+  let cancellationResponseOverride: string | null = null;
+
+  const cancelIntent = (effectiveDecision.detected_intent ?? "").toLowerCase() === "cancel_appointment";
+  const cancelNotYetExecuted = effectiveDecision.cancelRequested !== true;
+
+  if (cancelIntent && cancelNotYetExecuted) {
+    try {
+      // Get phone from this turn or from conversation record
+      const phoneThisTurn = effectiveDecision.collected_phone
+        ?? (effectiveDecision as unknown as Record<string, unknown>)["collectedPhone"] as string | null | undefined;
+      let phone = phoneThisTurn ?? null;
+
+      if (!phone) {
+        const convRecord = await db.conversations.findUnique({
+          where: { id: conversationId },
+          select: { contact_handle: true },
+        });
+        phone = convRecord?.contact_handle ?? null;
+      }
+
+      if (phone) {
+        const { findCustomerAppointments } = await import("~/engine/scheduling/cancellation-pipeline");
+        const { createCancellationDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+        const cancellationDb = createCancellationDb(db);
+
+        const appointments = await findCustomerAppointments(businessId, phone, cancellationDb);
+        console.log("[ai-response] cancellation lookup — found", appointments.length, "appointments for phone:", phone);
+
+        if (appointments.length === 0) {
+          cancellationResponseOverride = "I wasn't able to find an upcoming appointment under that number. Can you double check the phone number, or would you like me to connect you with our team?";
+          // Don't transition state — stay in current state for retry
+          effectiveDecision.proposed_state_change = null;
+        } else if (appointments.length === 1) {
+          const appt = appointments[0]!;
+          cancellationResponseOverride = `I found your appointment on ${appt.date} with ${appt.techName} for ${appt.serviceDescription}. Are you sure you'd like to cancel?`;
+          effectiveDecision.proposed_state_change = null; // stay — waiting for confirmation
+
+          // Store found appointments so the execution step can use them
+          await db.conversations.update({
+            where: { id: conversationId },
+            data: { pending_cancel_appointments: appointments as unknown as never },
+          });
+        } else {
+          // Multiple appointments — list them
+          const lines = appointments.map((a, i) =>
+            `${i + 1}. ${a.date} with ${a.techName} — ${a.serviceDescription}`,
+          );
+          cancellationResponseOverride = `I found ${appointments.length} upcoming appointments:\n\n${lines.join("\n")}\n\nWhich one would you like to cancel?`;
+          effectiveDecision.proposed_state_change = null;
+
+          await db.conversations.update({
+            where: { id: conversationId },
+            data: { pending_cancel_appointments: appointments as unknown as never },
+          });
+        }
+      }
+      // If no phone yet, the AI will ask for it — no override needed
+    } catch (err) {
+      console.error("[ai-response] cancellation lookup error:", err instanceof Error ? err.message : String(err));
+      // Let the AI's natural response through — don't crash
+    }
+  }
+
+  // ── Cancellation Execution — Step 3: Execute after confirm + reason ────────
   // When cancelRequested=true and cancellationReason is provided, execute the
   // cancellation: look up the appointment via conversation, cancel it, and
   // transition conversation to resolved.
-  let cancellationResponseOverride: string | null = null;
 
   if (effectiveDecision.cancelRequested === true && effectiveDecision.cancellationReason) {
     try {
-      const { findCustomerAppointments, cancelAppointment } = await import("~/engine/scheduling/cancellation-pipeline");
+      const { cancelAppointment } = await import("~/engine/scheduling/cancellation-pipeline");
       const { createCancellationDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
 
       const cancellationDb = createCancellationDb(db);
 
-      // Find the appointment linked to this conversation
-      const appointment = await db.appointments.findFirst({
-        where: {
-          conversation_id: conversationId,
-          status: { in: ["booked", "rescheduled"] },
-        },
-        select: { id: true },
-        orderBy: { appointment_date: "desc" },
-      });
+      // Find the appointment to cancel — prefer stored pending_cancel_appointments,
+      // fall back to conversation-linked appointment
+      let appointmentId: string | null = null;
 
-      if (appointment) {
+      const convCancel = await db.conversations.findUnique({
+        where: { id: conversationId },
+      }) as unknown as { pending_cancel_appointments?: unknown } | null;
+      const storedAppts = Array.isArray(convCancel?.pending_cancel_appointments)
+        ? convCancel.pending_cancel_appointments as Array<{ appointmentId: string }>
+        : [];
+
+      if (storedAppts.length === 1) {
+        appointmentId = storedAppts[0]!.appointmentId;
+      } else if (storedAppts.length > 1) {
+        // If multiple were stored, the AI should have narrowed to one by now.
+        // Use the first one as fallback (the AI prompt instructs disambiguation).
+        appointmentId = storedAppts[0]!.appointmentId;
+      }
+
+      // Fallback: look up by conversation_id
+      if (!appointmentId) {
+        const directAppt = await db.appointments.findFirst({
+          where: {
+            conversation_id: conversationId,
+            status: { in: ["booked", "rescheduled"] },
+          },
+          select: { id: true },
+          orderBy: { appointment_date: "desc" },
+        });
+        appointmentId = directAppt?.id ?? null;
+      }
+
+      if (appointmentId) {
         const result = await cancelAppointment(
-          appointment.id,
+          appointmentId,
           effectiveDecision.cancellationReason,
           "customer",
           cancellationDb,
         );
 
         if (result.success) {
-          console.log("[ai-response] appointment canceled successfully:", appointment.id);
+          console.log("[ai-response] appointment canceled successfully:", appointmentId);
           // Force state to resolved
           effectiveDecision.proposed_state_change = "resolved";
           effectiveDecision.message_purpose = "cancellation_confirmation";
+          // Clear stored cancel appointments
+          await db.conversations.update({
+            where: { id: conversationId },
+            data: { pending_cancel_appointments: null as never },
+          });
         } else {
           console.warn("[ai-response] cancellation failed:", result.reason);
           cancellationResponseOverride = "I wasn't able to cancel that appointment right now — it may already be in progress. Let me connect you with our team for help.";
