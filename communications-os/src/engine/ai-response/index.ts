@@ -1061,12 +1061,11 @@ async function _generateAIResponseFromDb(
         ?? (effectiveDecision as unknown as Record<string, unknown>)["collectedPhone"] as string | null | undefined;
       let phone = phoneThisTurn ?? null;
 
-      if (!phone) {
-        const convRecord = await db.conversations.findUnique({
-          where: { id: conversationId },
-          select: { contact_handle: true },
-        });
-        phone = convRecord?.contact_handle ?? null;
+      // Only use collected_phone for cancellation lookup — never contact_handle,
+      // which can be a UUID session ID for web chat channels.
+      const phoneDigits = phone ? phone.replace(/\D/g, "") : "";
+      if (!phone || phoneDigits.length < 10) {
+        phone = null;
       }
 
       if (phone) {
