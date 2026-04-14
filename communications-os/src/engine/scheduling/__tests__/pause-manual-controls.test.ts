@@ -21,7 +21,7 @@ import {
   type ClockProvider,
   type StartMyDayInput,
 } from "../pause-manual-controls";
-import { createInMemoryCapacityDb, type TechProfile } from "../capacity-math";
+import { type TechProfile } from "../capacity-math";
 import type { QueuedJob } from "../queue-insertion";
 import type { OsrmServiceDeps } from "../osrm-service";
 
@@ -100,7 +100,6 @@ interface InMemoryPauseState {
   manualFlags: Map<string, boolean>;
   startingMyDayUsed: Set<string>;
   updatedDriveTimes: Array<{ technicianId: string; date: Date; driveTimeMinutes: number }>;
-  adjustedCapacity: Array<{ technicianId: string; date: Date; deltaMinutes: number }>;
 }
 
 function freshPauseState(mode: "active" | "paused" | "resync_pending" = "active"): InMemoryPauseState {
@@ -113,7 +112,6 @@ function freshPauseState(mode: "active" | "paused" | "resync_pending" = "active"
     manualFlags: new Map(),
     startingMyDayUsed: new Set(),
     updatedDriveTimes: [],
-    adjustedCapacity: [],
   };
 }
 
@@ -121,10 +119,10 @@ function createInMemoryPauseDb(
   techProfiles: TechProfile[],
   state: InMemoryPauseState,
 ): PauseManualDb {
-  const capacityDb = createInMemoryCapacityDb(techProfiles);
+  const profileMap = new Map(techProfiles.map((p) => [p.id, p]));
 
   const db: PauseManualDb = {
-    capacityDb,
+    async getTechProfile(id: string) { return profileMap.get(id) ?? null; },
 
     async getSchedulingMode() {
       return state.mode;
@@ -192,10 +190,6 @@ function createInMemoryPauseDb(
       if (queue && queue.length > 0) {
         queue[0]!.driveTimeMinutes = driveTimeMinutes;
       }
-    },
-
-    async adjustReservedCapacity(technicianId, date, deltaMinutes) {
-      state.adjustedCapacity.push({ technicianId, date, deltaMinutes });
     },
 
     async transaction<T>(fn: (tx: PauseManualDb) => Promise<T>): Promise<T> {
@@ -310,20 +304,20 @@ describe("buildResyncAudit", () => {
     const state = freshPauseState("paused");
     state.techs = [tech];
 
+    // Overfill the queue past capacity (510 total, put in 600 min of work)
+    const overfilledQueue: QueuedJob[] = [
+      makeQueuedJob({ id: "j1", queuePosition: 0, estimatedDurationMinutes: 300, driveTimeMinutes: 0 }),
+      makeQueuedJob({ id: "j2", queuePosition: 1, estimatedDurationMinutes: 300, driveTimeMinutes: 0 }),
+    ];
+    state.queues.set(`tech-a:${dateKey(TODAY)}`, overfilledQueue);
+
     const profiles = [makeTechProfile("tech-a")];
     const db = createInMemoryPauseDb(profiles, state);
 
-    // Overbook capacity to trigger violation
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
-    // Now reserve more to overflow
-    // Actually, reserveCapacity checks fits — we need to force overcapacity.
-    // Let's use a profile with short hours instead.
-
     const audit = await buildResyncAudit("biz-1", TODAY, db);
 
-    // With 510 reserved and 510 available, it's exactly at capacity — no violation
-    expect(audit.violations).toHaveLength(0);
+    // 600 used > 510 available → should detect violation
+    expect(audit.violations.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -722,17 +716,14 @@ describe("startMyDay", () => {
   });
 
   it("capacity_exceeded when delta > 0 and no room", async () => {
+    // Queue is nearly full (505 of 510 min used) so a +20 delta won't fit
     const queue: QueuedJob[] = [
-      makeQueuedJob({ id: "j1", queuePosition: 0, driveTimeMinutes: 5 }),
+      makeQueuedJob({ id: "j1", queuePosition: 0, driveTimeMinutes: 5, estimatedDurationMinutes: 505 }),
     ];
     const state = freshPauseState();
     state.queues.set(`tech-a:${dateKey(TODAY)}`, queue);
     const profiles = [makeTechProfile("tech-a")];
     const db = createInMemoryPauseDb(profiles, state);
-
-    // Fill capacity completely
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
 
     const osrm = mockOsrmDeps(25); // delta = +20
 
@@ -751,7 +742,7 @@ describe("startMyDay", () => {
     }
   });
 
-  it("negative delta frees capacity (adjusts reservation)", async () => {
+  it("negative delta frees capacity (drive time updated)", async () => {
     const queue: QueuedJob[] = [
       makeQueuedJob({ id: "j1", queuePosition: 0, driveTimeMinutes: 30 }),
     ];
@@ -774,12 +765,12 @@ describe("startMyDay", () => {
     if (result.outcome === "updated") {
       expect(result.deltaMinutes).toBe(-20);
     }
-    // Verify capacity was adjusted
-    expect(state.adjustedCapacity).toHaveLength(1);
-    expect(state.adjustedCapacity[0]!.deltaMinutes).toBe(-20);
+    // Drive time was updated (capacity change is implicit via queue)
+    expect(state.updatedDriveTimes).toHaveLength(1);
+    expect(state.updatedDriveTimes[0]!.driveTimeMinutes).toBe(10);
   });
 
-  it("positive delta records capacity adjustment path", async () => {
+  it("positive delta updates drive time when capacity allows", async () => {
     const queue: QueuedJob[] = [
       makeQueuedJob({ id: "j1", queuePosition: 0, driveTimeMinutes: 5 }),
     ];
@@ -802,12 +793,12 @@ describe("startMyDay", () => {
     if (result.outcome === "updated") {
       expect(result.deltaMinutes).toBe(20);
     }
-    // Positive delta must also record the adjustment
-    expect(state.adjustedCapacity).toHaveLength(1);
-    expect(state.adjustedCapacity[0]!.deltaMinutes).toBe(20);
+    // Drive time was updated
+    expect(state.updatedDriveTimes).toHaveLength(1);
+    expect(state.updatedDriveTimes[0]!.driveTimeMinutes).toBe(25);
   });
 
-  it("zero delta skips capacity adjustment", async () => {
+  it("zero delta still updates drive time", async () => {
     const queue: QueuedJob[] = [
       makeQueuedJob({ id: "j1", queuePosition: 0, driveTimeMinutes: 12 }),
     ];
@@ -830,7 +821,6 @@ describe("startMyDay", () => {
     if (result.outcome === "updated") {
       expect(result.deltaMinutes).toBe(0);
     }
-    expect(state.adjustedCapacity).toHaveLength(0);
   });
 
   it("transactionally marks used and updates drive time", async () => {

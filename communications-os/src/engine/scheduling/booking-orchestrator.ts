@@ -4,19 +4,20 @@
 // BOOKING ORCHESTRATOR — ATOMIC JOB CREATION
 //
 // Single entry point for creating a new scheduling job.
-// Wraps reserveCapacity → create job → set queue position →
-// create audit event in one atomic transaction.
+// Checks capacity from the actual queue (ground truth), then
+// creates the job + audit event in one atomic transaction.
 //
 // Rules enforced:
-//   - All four steps in a single transaction (C1 fix)
-//   - Reserve AND position must BOTH succeed; failure rolls back
+//   - Capacity computed from actual queue, not a counter table
+//   - All steps in a single transaction (C1 fix)
+//   - Queue position + job + event created atomically
 //   - Scheduling event created atomically with the job (C5 fix)
 //   - Communication firing happens AFTER commit, not inside txn
 //
 // Injectable: db, clock.
 // ============================================================
 
-import { reserveCapacity, type CapacityDb, type TimePreference, type ReservationResult } from "./capacity-math";
+import { checkCapacityFromQueue, type TimePreference, type TechProfile } from "./capacity-math";
 import { findOptimalPosition, insertAtPosition, type QueuedJob, type NewJobInput } from "./queue-insertion";
 import type { Coordinates, OsrmServiceDeps } from "./osrm-service";
 import type { SchedulingJobStatus, SchedulingTriggeredBy } from "./scheduling-state-machine";
@@ -51,6 +52,9 @@ export interface BookingOrchestratorDb {
   /** Get the current queue for a tech on a date (for insertion calculation). */
   getQueueForTechDate(technicianId: string, date: Date): Promise<QueuedJob[]>;
 
+  /** Get the tech's profile for capacity calculation. */
+  getTechProfile(technicianId: string): Promise<TechProfile | null>;
+
   /** Create the scheduling_job row. */
   createSchedulingJob(job: {
     id: string;
@@ -83,9 +87,6 @@ export interface BookingOrchestratorDb {
     timestamp: Date;
   }): Promise<void>;
 
-  /** Capacity operations. */
-  capacityDb: CapacityDb;
-
   /** Pause guard operations. */
   pauseGuardDb: PauseGuardDb;
 
@@ -100,8 +101,8 @@ export interface ClockProvider {
 // ── bookJob ─────────────────────────────────────────────────────────────────
 
 /**
- * Atomic job booking: reserve capacity, create job, set queue position,
- * and create audit event — all inside a single transaction.
+ * Atomic job booking: check capacity from queue, create job, set queue
+ * position, and create audit event — all inside a single transaction.
  *
  * Returns a BookingOutcome. On success, the caller is responsible for
  * firing communication events (confirmation message, etc.) AFTER this
@@ -121,24 +122,30 @@ export async function bookJob(
   }
 
   return db.transaction(async (tx) => {
-    // 1. Reserve capacity (uses row-level lock internally)
-    const reserveResult: ReservationResult = await reserveCapacity(
-      request.technicianId,
-      request.scheduledDate,
+    // 1. Get queue + tech profile, compute capacity from actual jobs
+    const queue = await tx.getQueueForTechDate(request.technicianId, request.scheduledDate);
+    const tech = await tx.getTechProfile(request.technicianId);
+    if (!tech) {
+      return { success: false as const, reason: "no_capacity" as const };
+    }
+
+    const cap = checkCapacityFromQueue(
+      queue,
+      tech,
       request.totalCostMinutes,
       request.timePreference,
-      tx.capacityDb,
     );
 
-    if (!reserveResult.success) {
-      return {
-        success: false as const,
-        reason: reserveResult.reason ?? "no_capacity",
-      };
+    if (!cap.fits) {
+      const reason = request.timePreference === "MORNING" && cap.remainingMorning < request.totalCostMinutes
+        ? "no_morning_capacity" as const
+        : request.timePreference === "AFTERNOON" && cap.remainingAfternoon < request.totalCostMinutes
+          ? "no_afternoon_capacity" as const
+          : "no_capacity" as const;
+      return { success: false as const, reason };
     }
 
     // 2. Compute optimal queue position
-    const queue = await tx.getQueueForTechDate(request.technicianId, request.scheduledDate);
     const newJobInput: NewJobInput = {
       id: request.jobId,
       addressLat: request.addressLat,
@@ -150,8 +157,6 @@ export async function bookJob(
     const insertion = await findOptimalPosition(queue, newJobInput, techHomeBase, osrmDeps);
 
     if (!insertion.valid) {
-      // Capacity was reserved but queue insertion failed — transaction
-      // will roll back, releasing the reservation automatically.
       return { success: false as const, reason: "invalid_queue_position" as const };
     }
 

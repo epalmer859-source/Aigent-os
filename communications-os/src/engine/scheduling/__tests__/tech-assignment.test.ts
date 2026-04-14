@@ -2,7 +2,7 @@
 // Tech Assignment Scoring — Tests
 //
 // Every test traces to a rule in unified-scheduling-spec.md.
-// Uses in-memory capacity DB and mocked OSRM.
+// Capacity is queue-based (getTechProfile + getQueueForTechDate).
 // ============================================================
 
 import { describe, it, expect, vi } from "vitest";
@@ -15,8 +15,9 @@ import {
   type TechCandidate,
   type AssignmentInput,
   type ScoredTechInput,
+  type TechAssignmentDb,
 } from "../tech-assignment";
-import { createInMemoryCapacityDb, type TechProfile } from "../capacity-math";
+import type { QueuedJob } from "../queue-insertion";
 import type { OsrmServiceDeps } from "../osrm-service";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -38,18 +39,6 @@ function makeTech(overrides: Partial<TechCandidate> = {}): TechCandidate {
     overtimeCapMinutes: 0,
     isActive: true,
     ...overrides,
-  };
-}
-
-function toProfile(tech: TechCandidate): TechProfile {
-  return {
-    id: tech.id,
-    businessId: tech.businessId,
-    workingHoursStart: tech.workingHoursStart,
-    workingHoursEnd: tech.workingHoursEnd,
-    lunchStart: tech.lunchStart,
-    lunchEnd: tech.lunchEnd,
-    overtimeCapMinutes: tech.overtimeCapMinutes,
   };
 }
 
@@ -76,12 +65,41 @@ function mockOsrmDeps(fixedMinutes: number): OsrmServiceDeps {
   };
 }
 
+function makeEmptyDb(): TechAssignmentDb {
+  return {
+    async getQueueForTechDate() { return []; },
+  };
+}
+
+function makeQueuedJob(durationMinutes: number, overrides: Partial<QueuedJob> = {}): QueuedJob {
+  return {
+    id: `filler-${Math.random().toString(36).slice(2, 8)}`,
+    queuePosition: 0,
+    status: "NOT_STARTED",
+    timePreference: "NO_PREFERENCE",
+    addressLat: 33.75,
+    addressLng: -84.39,
+    manualPosition: false,
+    estimatedDurationMinutes: durationMinutes,
+    driveTimeMinutes: 0,
+    ...overrides,
+  };
+}
+
+function makeDbWithQueue(techId: string, queue: QueuedJob[]): TechAssignmentDb {
+  return {
+    async getQueueForTechDate(id) {
+      return id === techId ? queue : [];
+    },
+  };
+}
+
 // ── filterQualifiedTechs ──────────────────────────────────────────────────────
 
 describe("filterQualifiedTechs", () => {
   it("filters inactive techs", async () => {
     const techs = [makeTech({ isActive: false })];
-    const db = createInMemoryCapacityDb([toProfile(techs[0]!)]);
+    const db = makeEmptyDb();
 
     const result = await filterQualifiedTechs(techs, ASSIGNMENT, db);
     expect(result).toHaveLength(0);
@@ -89,7 +107,7 @@ describe("filterQualifiedTechs", () => {
 
   it("filters missing skill tag", async () => {
     const techs = [makeTech({ skillTags: ["st-plumbing"] })];
-    const db = createInMemoryCapacityDb([toProfile(techs[0]!)]);
+    const db = makeEmptyDb();
 
     const result = await filterQualifiedTechs(techs, ASSIGNMENT, db);
     expect(result).toHaveLength(0);
@@ -97,10 +115,7 @@ describe("filterQualifiedTechs", () => {
 
   it("filters no remaining capacity", async () => {
     const tech = makeTech();
-    const db = createInMemoryCapacityDb([toProfile(tech)]);
-    // Fill capacity completely
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity(tech.id, TODAY, 510, "NO_PREFERENCE", db);
+    const db = makeDbWithQueue(tech.id, [makeQueuedJob(510)]);
 
     const result = await filterQualifiedTechs([tech], ASSIGNMENT, db);
     expect(result).toHaveLength(0);
@@ -108,10 +123,8 @@ describe("filterQualifiedTechs", () => {
 
   it("MORNING preference respects sub-capacity", async () => {
     const tech = makeTech();
-    const db = createInMemoryCapacityDb([toProfile(tech)]);
-    // Fill morning: 240 min morning capacity, reserve 200
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity(tech.id, TODAY, 200, "MORNING", db);
+    // Fill morning with 200 min of MORNING-preference jobs
+    const db = makeDbWithQueue(tech.id, [makeQueuedJob(200, { timePreference: "MORNING" })]);
 
     // Assignment needs 100 min MORNING — only 40 left in morning
     const morningAssignment: AssignmentInput = {
@@ -127,7 +140,7 @@ describe("filterQualifiedTechs", () => {
     const inactive = makeTech({ id: "t-2", name: "Inactive", isActive: false });
     const noSkill = makeTech({ id: "t-3", name: "No Skill", skillTags: [] });
     const techs = [active, inactive, noSkill];
-    const db = createInMemoryCapacityDb(techs.map(toProfile));
+    const db = makeEmptyDb();
 
     const result = await filterQualifiedTechs(techs, ASSIGNMENT, db);
     expect(result).toHaveLength(1);
@@ -135,7 +148,7 @@ describe("filterQualifiedTechs", () => {
   });
 
   it("empty input returns []", async () => {
-    const db = createInMemoryCapacityDb([]);
+    const db = makeEmptyDb();
     const result = await filterQualifiedTechs([], ASSIGNMENT, db);
     expect(result).toHaveLength(0);
   });
@@ -200,24 +213,17 @@ describe("rankTechs", () => {
   });
 
   it("closer tech vs more available tech formula behaves correctly", () => {
-    // Tech A: closer (10 min) but less capacity (200)
-    // Tech B: farther (30 min) but more capacity (500)
     const ranked = rankTechs([
       { techId: "A", techName: "Close", driveTimeMinutes: 10, remainingCapacityMinutes: 200, existingJobsToday: 1 },
       { techId: "B", techName: "Available", driveTimeMinutes: 30, remainingCapacityMinutes: 500, existingJobsToday: 1 },
     ]);
 
-    // A proximity: 1 - 10/30 = 0.667, availability: 200/500 = 0.4
-    //   score = 0.667 * 0.6 + 0.4 * 0.4 = 0.4 + 0.16 = 0.56
-    // B proximity: 1 - 30/30 = 0, availability: 500/500 = 1
-    //   score = 0 * 0.6 + 1 * 0.4 = 0.4
     expect(ranked[0]!.techId).toBe("A");
     expect(ranked[1]!.techId).toBe("B");
     expect(ranked[0]!.score).toBeGreaterThan(ranked[1]!.score);
   });
 
   it("equal scores broken by fewer existingJobsToday", () => {
-    // Same drive time and capacity → same score → fewer jobs wins
     const ranked = rankTechs([
       { techId: "busy", techName: "Busy", driveTimeMinutes: 20, remainingCapacityMinutes: 400, existingJobsToday: 5 },
       { techId: "free", techName: "Free", driveTimeMinutes: 20, remainingCapacityMinutes: 400, existingJobsToday: 1 },
@@ -228,32 +234,11 @@ describe("rankTechs", () => {
   });
 
   it("next tie broken by lower driveTimeMinutes", () => {
-    // Same score, same jobs today → closer wins
-    const ranked = rankTechs([
-      { techId: "far", techName: "Far", driveTimeMinutes: 25, remainingCapacityMinutes: 400, existingJobsToday: 2 },
-      { techId: "near", techName: "Near", driveTimeMinutes: 15, remainingCapacityMinutes: 400, existingJobsToday: 2 },
-    ]);
-
-    // Both have same score (they have same ratios since max is across both)
-    // Wait — different drive times means different proximity scores.
-    // near: proximity = 1 - 15/25 = 0.4, far: 1 - 25/25 = 0
-    // They won't have equal scores. Let me adjust to equal everything.
-    // With same capacity and same drive time, we need equal inputs.
-    // Use the tie-break for drive when score AND jobs match:
     const ranked2 = rankTechs([
       { techId: "A", techName: "A", driveTimeMinutes: 20, remainingCapacityMinutes: 300, existingJobsToday: 2 },
       { techId: "B", techName: "B", driveTimeMinutes: 15, remainingCapacityMinutes: 300, existingJobsToday: 2 },
     ]);
-    // A: prox = 1-20/20=0, avail = 300/300=1, score = 0+0.4 = 0.4
-    // B: prox = 1-15/20=0.25, avail = 1, score = 0.15+0.4 = 0.55
-    // B wins by score, not tie-break. Need truly equal scores.
-
-    // Force equal scores: same drive, same capacity, different jobs → test jobs tie-break
-    // That's covered above. For drive tie-break, need same score AND same jobs:
-    // Only way: identical inputs with different drive times won't give same score.
-    // This tie-break only fires if float math gives exact equality.
-    // Let's verify with the sort stability test instead.
-    expect(ranked2[0]!.techId).toBe("B"); // Higher score, so this validates the formula
+    expect(ranked2[0]!.techId).toBe("B");
   });
 
   it("three-tech ordering correct", () => {
@@ -264,9 +249,6 @@ describe("rankTechs", () => {
     ]);
 
     expect(ranked).toHaveLength(3);
-    // close: prox = 1-5/30 = 0.833, avail = 300/500 = 0.6  → score = 0.5 + 0.24 = 0.74
-    // mid:   prox = 1-15/30 = 0.5,  avail = 400/500 = 0.8  → score = 0.3 + 0.32 = 0.62
-    // far:   prox = 1-30/30 = 0,    avail = 500/500 = 1    → score = 0 + 0.4 = 0.4
     expect(ranked[0]!.techId).toBe("close");
     expect(ranked[1]!.techId).toBe("mid");
     expect(ranked[2]!.techId).toBe("far");
@@ -278,10 +260,6 @@ describe("rankTechs", () => {
       { techId: "more", techName: "More", driveTimeMinutes: 20, remainingCapacityMinutes: 500, existingJobsToday: 1 },
     ]);
 
-    // Same proximity (both = 0 since max drive = 20 and both are 20)
-    // Nope: both at max → proximity = 1 - 20/20 = 0 for both
-    // less: avail = 200/500 = 0.4 → score = 0 + 0.16 = 0.16
-    // more: avail = 500/500 = 1   → score = 0 + 0.4  = 0.4
     expect(ranked[0]!.techId).toBe("more");
   });
 
@@ -291,9 +269,6 @@ describe("rankTechs", () => {
       { techId: "close", techName: "Close", driveTimeMinutes: 10, remainingCapacityMinutes: 400, existingJobsToday: 1 },
     ]);
 
-    // Same availability (both = 1)
-    // far: prox = 1 - 30/30 = 0 → score = 0 + 0.4 = 0.4
-    // close: prox = 1 - 10/30 = 0.667 → score = 0.4 + 0.4 = 0.8
     expect(ranked[0]!.techId).toBe("close");
   });
 });
@@ -305,20 +280,19 @@ describe("assignTech", () => {
     const close = makeTech({ id: "close", name: "Close", homeBaseLat: 33.80, homeBaseLng: -84.40 });
     const far = makeTech({ id: "far", name: "Far", homeBaseLat: 34.00, homeBaseLng: -84.60 });
     const techs = [close, far];
-    const db = createInMemoryCapacityDb(techs.map(toProfile));
+    const db = makeEmptyDb();
     const osrm = mockOsrmDeps(15);
 
     const result = await assignTech(techs, ASSIGNMENT, db, osrm);
     expect(result.assigned).toBe(true);
     if (result.assigned) {
-      // Both have same drive time from mock, same capacity → tie-break by input order
       expect(result.tech).toBeDefined();
     }
   });
 
   it("returns no_qualified_techs on skill mismatch", async () => {
     const techs = [makeTech({ skillTags: ["st-plumbing"] })];
-    const db = createInMemoryCapacityDb(techs.map(toProfile));
+    const db = makeEmptyDb();
     const osrm = mockOsrmDeps(10);
 
     const result = await assignTech(techs, ASSIGNMENT, db, osrm);
@@ -330,10 +304,7 @@ describe("assignTech", () => {
 
   it("returns no_capacity when skilled techs are full", async () => {
     const tech = makeTech();
-    const db = createInMemoryCapacityDb([toProfile(tech)]);
-    // Fill capacity
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity(tech.id, TODAY, 510, "NO_PREFERENCE", db);
+    const db = makeDbWithQueue(tech.id, [makeQueuedJob(510)]);
 
     const osrm = mockOsrmDeps(10);
     const result = await assignTech([tech], ASSIGNMENT, db, osrm);
@@ -344,7 +315,7 @@ describe("assignTech", () => {
   });
 
   it("returns no_techs_available on empty input", async () => {
-    const db = createInMemoryCapacityDb([]);
+    const db = makeEmptyDb();
     const osrm = mockOsrmDeps(10);
 
     const result = await assignTech([], ASSIGNMENT, db, osrm);
@@ -359,7 +330,7 @@ describe("assignTech", () => {
     const inactive = makeTech({ id: "off", name: "Off", isActive: false });
     const wrongSkill = makeTech({ id: "wrong", name: "Wrong", skillTags: ["st-electric"] });
     const techs = [qualified, inactive, wrongSkill];
-    const db = createInMemoryCapacityDb(techs.map(toProfile));
+    const db = makeEmptyDb();
     const osrm = mockOsrmDeps(12);
 
     const result = await assignTech(techs, ASSIGNMENT, db, osrm);

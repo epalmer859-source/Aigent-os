@@ -15,8 +15,6 @@
 
 import type { PrismaClient } from "../../../generated/prisma";
 import type {
-  CapacityDb,
-  CapacityReservationRow,
   TechProfile,
 } from "./capacity-math";
 import type { BookingOrchestratorDb } from "./booking-orchestrator";
@@ -68,150 +66,22 @@ export function createPauseGuardDb(prisma: PrismaClient): PauseGuardDb {
   };
 }
 
-// ── CapacityDb ──────────────────────────────────────────────────────────────
+// ── getTechProfile helper ──────────────────────────────────────────────────
 
-export function createCapacityDb(prisma: PrismaClient): CapacityDb {
-  function mapRow(row: {
-    id: string;
-    business_id: string;
-    technician_id: string;
-    date: Date;
-    total_available_minutes: number;
-    reserved_minutes: number;
-    morning_reserved_minutes: number;
-    afternoon_reserved_minutes: number;
-  }): CapacityReservationRow {
-    return {
-      id: row.id,
-      business_id: row.business_id,
-      technician_id: row.technician_id,
-      date: row.date,
-      total_available_minutes: row.total_available_minutes,
-      reserved_minutes: row.reserved_minutes,
-      morning_reserved_minutes: row.morning_reserved_minutes,
-      afternoon_reserved_minutes: row.afternoon_reserved_minutes,
-    };
-  }
-
-  const db: CapacityDb = {
-    async getTechProfile(technicianId: string): Promise<TechProfile | null> {
-      const tech = await prisma.technicians.findUnique({
-        where: { id: technicianId },
-      });
-      if (!tech) return null;
-      return {
-        id: tech.id,
-        businessId: tech.business_id,
-        workingHoursStart: tech.working_hours_start,
-        workingHoursEnd: tech.working_hours_end,
-        lunchStart: tech.lunch_start,
-        lunchEnd: tech.lunch_end,
-        overtimeCapMinutes: tech.overtime_cap_minutes,
-      };
-    },
-
-    async getReservation(technicianId: string, date: Date): Promise<CapacityReservationRow | null> {
-      const row = await prisma.capacity_reservations.findUnique({
-        where: {
-          technician_id_date: {
-            technician_id: technicianId,
-            date: dateToDateOnly(date),
-          },
-        },
-      });
-      if (!row) return null;
-      return mapRow(row);
-    },
-
-    async updateReservation(technicianId: string, date: Date, data: {
-      reserved_minutes: number;
-      morning_reserved_minutes: number;
-      afternoon_reserved_minutes: number;
-    }): Promise<void> {
-      await prisma.capacity_reservations.update({
-        where: {
-          technician_id_date: {
-            technician_id: technicianId,
-            date: dateToDateOnly(date),
-          },
-        },
-        data: {
-          reserved_minutes: data.reserved_minutes,
-          morning_reserved_minutes: data.morning_reserved_minutes,
-          afternoon_reserved_minutes: data.afternoon_reserved_minutes,
-        },
-      });
-    },
-
-    // H6: SELECT FOR UPDATE — ensures row-level lock under concurrent access.
-    // 1. Try SELECT FOR UPDATE
-    // 2. If no row, INSERT with ON CONFLICT DO NOTHING
-    // 3. Re-SELECT FOR UPDATE to get the winning row
-    async ensureReservationForUpdate(
-      technicianId: string,
-      date: Date,
-      defaults: Omit<CapacityReservationRow, "id">,
-    ): Promise<CapacityReservationRow> {
-      const d = dateToDateOnly(date);
-
-      // Step 1: Try to lock existing row
-      const existing = await prisma.$queryRaw<CapacityReservationRow[]>`
-        SELECT id, business_id, technician_id, date, total_available_minutes,
-               reserved_minutes, morning_reserved_minutes, afternoon_reserved_minutes
-        FROM capacity_reservations
-        WHERE technician_id = ${technicianId}::uuid AND date = ${d}::date
-        FOR UPDATE
-      `;
-
-      if (existing.length > 0) return existing[0]!;
-
-      // Step 2: Insert with ON CONFLICT DO NOTHING (race-safe)
-      await prisma.$executeRaw`
-        INSERT INTO capacity_reservations (id, business_id, technician_id, date,
-          total_available_minutes, reserved_minutes, morning_reserved_minutes, afternoon_reserved_minutes)
-        VALUES (uuid_generate_v4(), ${defaults.business_id}::uuid, ${technicianId}::uuid, ${d}::date,
-          ${defaults.total_available_minutes}, ${defaults.reserved_minutes},
-          ${defaults.morning_reserved_minutes}, ${defaults.afternoon_reserved_minutes})
-        ON CONFLICT (technician_id, date) DO NOTHING
-      `;
-
-      // Step 3: Re-lock the winning row
-      const locked = await prisma.$queryRaw<CapacityReservationRow[]>`
-        SELECT id, business_id, technician_id, date, total_available_minutes,
-               reserved_minutes, morning_reserved_minutes, afternoon_reserved_minutes
-        FROM capacity_reservations
-        WHERE technician_id = ${technicianId}::uuid AND date = ${d}::date
-        FOR UPDATE
-      `;
-
-      return locked[0]!;
-    },
-
-    async getFutureReservations(technicianId: string, afterDate: Date): Promise<CapacityReservationRow[]> {
-      const rows = await prisma.capacity_reservations.findMany({
-        where: {
-          technician_id: technicianId,
-          date: { gt: dateToDateOnly(afterDate) },
-        },
-        orderBy: { date: "asc" },
-      });
-      return rows.map(mapRow);
-    },
-
-    async transaction<T>(fn: (tx: CapacityDb) => Promise<T>): Promise<T> {
-      // If prisma is already a transaction client ($transaction won't exist),
-      // run the callback directly — we're already inside a transaction.
-      if (typeof (prisma as unknown as Record<string, unknown>).$transaction !== "function") {
-        return fn(db);
-      }
-      return prisma.$transaction(async (tx) => {
-        const txCapDb = createCapacityDb(tx as unknown as PrismaClient);
-        return fn(txCapDb);
-      });
-    },
+export async function getTechProfile(prisma: PrismaClient, technicianId: string): Promise<TechProfile | null> {
+  const tech = await prisma.technicians.findUnique({
+    where: { id: technicianId },
+  });
+  if (!tech) return null;
+  return {
+    id: tech.id,
+    businessId: tech.business_id,
+    workingHoursStart: tech.working_hours_start,
+    workingHoursEnd: tech.working_hours_end,
+    lunchStart: tech.lunch_start,
+    lunchEnd: tech.lunch_end,
+    overtimeCapMinutes: tech.overtime_cap_minutes,
   };
-
-  return db;
 }
 
 // ── SchedulingStateMachineDb ────────────────────────────────────────────────
@@ -329,15 +199,17 @@ async function getQueueForTechDate(prisma: PrismaClient, technicianId: string, d
 // ── BookingOrchestratorDb ───────────────────────────────────────────────────
 
 export function createBookingOrchestratorDb(prisma: PrismaClient): BookingOrchestratorDb {
-  const capacityDb = createCapacityDb(prisma);
   const pauseGuardDb = createPauseGuardDb(prisma);
 
   const db: BookingOrchestratorDb = {
-    capacityDb,
     pauseGuardDb,
 
     async getQueueForTechDate(technicianId: string, date: Date): Promise<QueuedJob[]> {
       return getQueueForTechDate(prisma, technicianId, date);
+    },
+
+    async getTechProfile(technicianId: string): Promise<TechProfile | null> {
+      return getTechProfile(prisma, technicianId);
     },
 
     async createSchedulingJob(job) {
@@ -398,12 +270,14 @@ export function createBookingOrchestratorDb(prisma: PrismaClient): BookingOrches
 // ── RebookCascadeDb ─────────────────────────────────────────────────────────
 
 export function createRebookCascadeDb(prisma: PrismaClient): RebookCascadeDb {
-  const capacityDb = createCapacityDb(prisma);
   const pauseGuardDb = createPauseGuardDb(prisma);
 
   const db: RebookCascadeDb = {
-    capacityDb,
     pauseGuardDb,
+
+    async getTechProfile(technicianId: string): Promise<TechProfile | null> {
+      return getTechProfile(prisma, technicianId);
+    },
 
     async getJob(jobId: string): Promise<RebookableJob | null> {
       const row = await prisma.scheduling_jobs.findUnique({ where: { id: jobId } });
@@ -598,12 +472,14 @@ export function createEndOfDaySweepWorkerDb(prisma: PrismaClient): EndOfDaySweep
 // ── GapFillDb ──────────────────────────────────────────────────────────────
 
 export function createGapFillDb(prisma: PrismaClient): GapFillDb {
-  const capacityDb = createCapacityDb(prisma);
   const pauseGuardDb = createPauseGuardDb(prisma);
 
   const db: GapFillDb = {
-    capacityDb,
     pauseGuardDb,
+
+    async getTechProfile(technicianId: string): Promise<TechProfile | null> {
+      return getTechProfile(prisma, technicianId);
+    },
 
     async getBookedCandidates(businessId: string, date: Date, excludeJobIds: string[]): Promise<GapFillCandidate[]> {
       const rows = await prisma.scheduling_jobs.findMany({
@@ -777,12 +653,14 @@ function mapPullForwardOffer(row: {
 // ── TransferDb ─────────────────────────────────────────────────────────────
 
 export function createTransferDb(prisma: PrismaClient): TransferDb {
-  const capacityDb = createCapacityDb(prisma);
   const pauseGuardDb = createPauseGuardDb(prisma);
 
   const db: TransferDb = {
-    capacityDb,
     pauseGuardDb,
+
+    async getTechProfile(technicianId: string): Promise<TechProfile | null> {
+      return getTechProfile(prisma, technicianId);
+    },
 
     async getJob(jobId: string): Promise<TransferableJob | null> {
       const row = await prisma.scheduling_jobs.findUnique({ where: { id: jobId } });
@@ -1398,10 +1276,7 @@ export function createEstimateTimeoutWorkerDb(prisma: PrismaClient): EstimateTim
 import type { PauseManualDb, SchedulingMode, SchedulingModeState, TechInfo } from "./pause-manual-controls";
 
 export function createPauseManualDb(prisma: PrismaClient): PauseManualDb {
-  const capacityDb = createCapacityDb(prisma);
-
   const db: PauseManualDb = {
-    capacityDb,
 
     async getSchedulingMode(businessId: string): Promise<SchedulingModeState> {
       const biz = await prisma.businesses.findUniqueOrThrow({
@@ -1559,23 +1434,8 @@ export function createPauseManualDb(prisma: PrismaClient): PauseManualDb {
       }
     },
 
-    async adjustReservedCapacity(technicianId: string, date: Date, deltaMinutes: number) {
-      // Adjust the total reserved minutes on the capacity reservation
-      const reservation = await prisma.capacity_reservations.findUnique({
-        where: {
-          technician_id_date: {
-            technician_id: technicianId,
-            date: dateToDateOnly(date),
-          },
-        },
-      });
-      if (reservation) {
-        const newReserved = Math.max(0, reservation.reserved_minutes + deltaMinutes);
-        await prisma.capacity_reservations.update({
-          where: { id: reservation.id },
-          data: { reserved_minutes: newReserved },
-        });
-      }
+    async getTechProfile(technicianId: string): Promise<TechProfile | null> {
+      return getTechProfile(prisma, technicianId);
     },
 
     async transaction<T>(fn: (tx: PauseManualDb) => Promise<T>): Promise<T> {

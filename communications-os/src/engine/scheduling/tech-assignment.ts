@@ -3,7 +3,7 @@
 //
 // TECH ASSIGNMENT SCORING — DETERMINISTIC DISPATCH
 //
-// Filter pipeline: active → skill tags → capacity
+// Filter pipeline: active → skill tags → capacity (from queue)
 // Scoring: (proximity × 0.6) + (availability × 0.4)
 // Tie-breaks: fewer jobs today → closer to home → input order
 //
@@ -11,7 +11,8 @@
 // ============================================================
 
 import { getDriveTime, type Coordinates, type OsrmServiceDeps } from "./osrm-service";
-import { checkCapacity, type CapacityDb, type TimePreference } from "./capacity-math";
+import { checkCapacityFromQueue, type TimePreference } from "./capacity-math";
+import type { QueuedJob } from "./queue-insertion";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -93,12 +94,18 @@ function techToProfile(tech: TechCandidate) {
   };
 }
 
+// ── DB interface for queue-based capacity ────────────────────────────────────
+
+export interface TechAssignmentDb {
+  getQueueForTechDate(technicianId: string, date: Date): Promise<QueuedJob[]>;
+}
+
 // ── 1. filterQualifiedTechs ───────────────────────────────────────────────────
 
 export async function filterQualifiedTechs(
   techs: TechCandidate[],
   assignment: AssignmentInput,
-  capacityDb: CapacityDb,
+  db: TechAssignmentDb,
 ): Promise<QualifiedTech[]> {
   const qualified: QualifiedTech[] = [];
 
@@ -109,13 +116,13 @@ export async function filterQualifiedTechs(
     // (b) skillTags must include serviceTypeId
     if (!tech.skillTags.includes(assignment.serviceTypeId)) continue;
 
-    // (c) capacity must pass
-    const cap = await checkCapacity(
-      tech.id,
-      assignment.date,
+    // (c) capacity must pass — computed from actual queue
+    const queue = await db.getQueueForTechDate(tech.id, assignment.date);
+    const cap = checkCapacityFromQueue(
+      queue,
+      techToProfile(tech),
       assignment.totalCostMinutes,
       assignment.timePreference,
-      capacityDb,
     );
     if (!cap.fits) continue;
 
@@ -216,7 +223,7 @@ export function rankTechs(scoredTechs: ScoredTechInput[]): TechScore[] {
 export async function assignTech(
   techs: TechCandidate[],
   assignment: AssignmentInput,
-  capacityDb: CapacityDb,
+  db: TechAssignmentDb,
   osrmDeps?: OsrmServiceDeps,
 ): Promise<AssignmentResult> {
   if (techs.length === 0) {
@@ -232,7 +239,7 @@ export async function assignTech(
   }
 
   // Filter by capacity
-  const qualified = await filterQualifiedTechs(activeSkilled, assignment, capacityDb);
+  const qualified = await filterQualifiedTechs(activeSkilled, assignment, db);
   if (qualified.length === 0) {
     return { assigned: false, reason: "no_capacity" };
   }

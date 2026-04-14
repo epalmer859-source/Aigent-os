@@ -19,7 +19,7 @@
 // ============================================================
 
 import { isLockedState, type SchedulingJobStatus } from "./scheduling-state-machine";
-import { checkCapacity, reserveCapacity, releaseCapacity, type CapacityDb, type TimePreference } from "./capacity-math";
+import { checkCapacityFromQueue, type TimePreference, type TechProfile } from "./capacity-math";
 import { findOptimalPosition, type QueuedJob, type NewJobInput } from "./queue-insertion";
 import { getDriveTime, type Coordinates, type OsrmServiceDeps } from "./osrm-service";
 import type { TechCandidate } from "./tech-assignment";
@@ -132,7 +132,7 @@ export interface TransferDb {
     netDriveTimeSavingMinutes: number;
   }): Promise<void>;
 
-  capacityDb: CapacityDb;
+  getTechProfile(technicianId: string): Promise<TechProfile | null>;
 
   /** Pause guard operations. */
   pauseGuardDb: PauseGuardDb;
@@ -242,18 +242,12 @@ export async function evaluateTransfer(
     // Must have the skill
     if (!tech.skillTags.includes(job.serviceTypeId)) continue;
 
-    // Check capacity
-    const cap = await checkCapacity(
-      tech.id,
-      job.scheduledDate,
-      job.totalCostMinutes,
-      job.timePreference,
-      db.capacityDb,
-    );
-    if (!cap.fits) continue;
-
-    // Load target queue
+    // Load target queue and check capacity from it
     const targetQueue = await db.getQueueForTechDate(tech.id, job.scheduledDate);
+    const techProfile = await db.getTechProfile(tech.id);
+    if (!techProfile) continue;
+    const cap = checkCapacityFromQueue(targetQueue, techProfile, job.totalCostMinutes, job.timePreference);
+    if (!cap.fits) continue;
     const targetHomeBase: Coordinates = { lat: tech.homeBaseLat, lng: tech.homeBaseLng };
 
     const newJobInput: NewJobInput = {
@@ -344,25 +338,25 @@ export async function executeTransfer(
     return { outcome: "blocked" as const, jobId: evaluation.jobId, reason: pauseCheck.reason };
   }
 
-  // Re-check capacity using the job's actual time preference
-  const cap = await checkCapacity(
-    evaluation.toTechnicianId,
-    evaluation.toDate,
-    evaluation.totalCostMinutes,
-    evaluation.timePreference,
-    db.capacityDb,
-  );
-
-  if (!cap.fits) {
+  // Re-check queue insertion validity: bounds + locked prefix + capacity
+  const targetQueue = await db.getQueueForTechDate(evaluation.toTechnicianId, evaluation.toDate);
+  const execTechProfile = await db.getTechProfile(evaluation.toTechnicianId);
+  if (!execTechProfile) {
     return {
       outcome: "capacity_changed",
       jobId: evaluation.jobId,
       reason: "slot_no_longer_available",
     };
   }
+  const execCap = checkCapacityFromQueue(targetQueue, execTechProfile, evaluation.totalCostMinutes, evaluation.timePreference);
 
-  // Re-check queue insertion validity: bounds + locked prefix
-  const targetQueue = await db.getQueueForTechDate(evaluation.toTechnicianId, evaluation.toDate);
+  if (!execCap.fits) {
+    return {
+      outcome: "capacity_changed",
+      jobId: evaluation.jobId,
+      reason: "slot_no_longer_available",
+    };
+  }
   if (evaluation.newQueuePosition > targetQueue.length) {
     return {
       outcome: "capacity_changed",
@@ -384,26 +378,8 @@ export async function executeTransfer(
     };
   }
 
-  // Execute transactionally
+  // Execute transactionally — no separate capacity counter, the job move IS the capacity change.
   await db.transaction(async (tx) => {
-    // Reserve capacity on target tech using actual time preference
-    await reserveCapacity(
-      evaluation.toTechnicianId,
-      evaluation.toDate,
-      evaluation.totalCostMinutes,
-      evaluation.timePreference,
-      tx.capacityDb,
-    );
-
-    // Release capacity from source tech using actual time preference
-    await releaseCapacity(
-      evaluation.fromTechnicianId,
-      evaluation.fromDate,
-      evaluation.totalCostMinutes,
-      evaluation.timePreference,
-      tx.capacityDb,
-    );
-
     // Update job schedule
     await tx.updateJobSchedule(
       evaluation.jobId,

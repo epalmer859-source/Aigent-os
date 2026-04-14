@@ -21,9 +21,8 @@
 
 import { isLockedState, type SchedulingJobStatus } from "./scheduling-state-machine";
 import {
-  revalidateCapacity,
+  checkCapacityFromQueue,
   calculateAvailableMinutes,
-  type CapacityDb,
   type TechProfile,
   type CapacityViolation,
 } from "./capacity-math";
@@ -148,15 +147,7 @@ export interface PauseManualDb {
   isStartingMyDayUsed(technicianId: string, date: Date): Promise<boolean>;
   markStartingMyDayUsed(technicianId: string, date: Date): Promise<void>;
   updateFirstJobDriveTime(technicianId: string, date: Date, driveTimeMinutes: number): Promise<void>;
-  /**
-   * Apply a delta to the technician/date reservation state.
-   * - Positive delta consumes capacity (drive time increased).
-   * - Negative delta frees capacity (drive time decreased).
-   * - Must preserve reservation consistency (never go below zero reserved).
-   */
-  adjustReservedCapacity(technicianId: string, date: Date, deltaMinutes: number): Promise<void>;
-
-  capacityDb: CapacityDb;
+  getTechProfile(technicianId: string): Promise<TechProfile | null>;
 
   transaction<T>(fn: (tx: PauseManualDb) => Promise<T>): Promise<T>;
 }
@@ -212,11 +203,20 @@ export async function buildResyncAudit(
       (sum, j) => sum + j.estimatedDurationMinutes + j.driveTimeMinutes, 0,
     );
 
-    // Revalidate capacity
-    const violations = await revalidateCapacity(tech.id, tech.profile, db.capacityDb, date);
-    allViolations.push(...violations);
-
+    // Revalidate capacity from queue (ground truth)
     const avail = calculateAvailableMinutes(tech.profile);
+    const queueCap = checkCapacityFromQueue(queue, tech.profile, 0, "NO_PREFERENCE");
+    const violations: CapacityViolation[] = [];
+    if (queueCap.remainingTotal < 0) {
+      violations.push({ technicianId: tech.id, date, violation: "total_overcapacity", reserved: avail.totalMinutes - queueCap.remainingTotal, available: avail.totalMinutes });
+    }
+    if (queueCap.remainingMorning < 0) {
+      violations.push({ technicianId: tech.id, date, violation: "morning_overcapacity", reserved: avail.morningMinutes - queueCap.remainingMorning, available: avail.morningMinutes });
+    }
+    if (queueCap.remainingAfternoon < 0) {
+      violations.push({ technicianId: tech.id, date, violation: "afternoon_overcapacity", reserved: avail.afternoonMinutes - queueCap.remainingAfternoon, available: avail.afternoonMinutes });
+    }
+    allViolations.push(...violations);
 
     techSummaries.push({
       technicianId: tech.id,
@@ -312,8 +312,11 @@ export async function resumeScheduling(
   const violations: CapacityViolation[] = [];
 
   for (const tech of techs) {
-    const v = await revalidateCapacity(tech.id, tech.profile, db.capacityDb, today);
-    violations.push(...v);
+    const queue = await db.getQueueForTechDate(tech.id, today);
+    const queueCap = checkCapacityFromQueue(queue, tech.profile, 0, "NO_PREFERENCE");
+    if (queueCap.remainingTotal < 0) {
+      violations.push({ technicianId: tech.id, date: today, violation: "total_overcapacity", reserved: -queueCap.remainingTotal, available: calculateAvailableMinutes(tech.profile).totalMinutes });
+    }
   }
 
   if (violations.length > 0) {
@@ -528,28 +531,19 @@ export async function startMyDay(
 
   // If delta > 0, verify capacity can absorb
   if (delta > 0) {
-    // Use checkCapacity to verify there's room for the increase
-    const { checkCapacity } = await import("./capacity-math");
-    const cap = await checkCapacity(
-      technicianId,
-      date,
-      delta, // we need this many additional minutes
-      "NO_PREFERENCE",
-      db.capacityDb,
-    );
-
-    if (!cap.fits) {
-      return { outcome: "capacity_exceeded", technicianId, deltaMinutes: delta };
+    const techProfile = await db.getTechProfile(technicianId);
+    if (techProfile) {
+      const cap = checkCapacityFromQueue(queue, techProfile, delta, "NO_PREFERENCE");
+      if (!cap.fits) {
+        return { outcome: "capacity_exceeded", technicianId, deltaMinutes: delta };
+      }
     }
   }
 
-  // Transactionally update
+  // Transactionally update drive time — no separate capacity counter to adjust.
   await db.transaction(async (tx) => {
     await tx.updateFirstJobDriveTime(technicianId, date, newDriveTime);
     await tx.markStartingMyDayUsed(technicianId, date);
-    if (delta !== 0) {
-      await tx.adjustReservedCapacity(technicianId, date, delta);
-    }
   });
 
   return {

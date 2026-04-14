@@ -19,7 +19,7 @@
 // ============================================================
 
 import { endOfDaySweep, type SchedulingStateMachineDb, type SchedulingJobStatus, type StuckJob } from "./scheduling-state-machine";
-import { parseHHMM, type TechProfile, type CapacityDb } from "./capacity-math";
+import { parseHHMM, type TechProfile } from "./capacity-math";
 import { businessToday } from "./timezone";
 import { checkPauseGuard, type PauseGuardDb } from "./pause-guard";
 import type { QueuedJob } from "./queue-insertion";

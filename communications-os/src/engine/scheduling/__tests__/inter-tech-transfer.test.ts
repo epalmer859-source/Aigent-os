@@ -24,7 +24,7 @@ import {
   type ClockProvider,
   type TransferEvaluation,
 } from "../inter-tech-transfer";
-import { createInMemoryCapacityDb, type TechProfile } from "../capacity-math";
+import { type TechProfile, type TimePreference } from "../capacity-math";
 import type { TechCandidate } from "../tech-assignment";
 import type { QueuedJob } from "../queue-insertion";
 import type { Coordinates, OsrmServiceDeps } from "../osrm-service";
@@ -188,10 +188,10 @@ function createInMemoryTransferDb(
   techProfiles: TechProfile[],
   state: InMemoryTransferState,
 ): TransferDb {
-  const capacityDb = createInMemoryCapacityDb(techProfiles);
+  const profileMap = new Map(techProfiles.map((p) => [p.id, p]));
 
   const db: TransferDb = {
-    capacityDb,
+    async getTechProfile(id: string) { return profileMap.get(id) ?? null; },
     pauseGuardDb: {
       async getSchedulingMode() { return { mode: "active" as const }; },
     },
@@ -383,11 +383,13 @@ describe("evaluateTransfer", () => {
     const targetTech = makeTechCandidate("tech-target");
     const profiles = [makeTechProfile("tech-source"), makeTechProfile("tech-target")];
     const state = freshState();
-    const db = createInMemoryTransferDb(profiles, state);
 
-    // Fill target tech's capacity
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-target", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
+    // Fill target tech's capacity via queue
+    state.queues.set(`tech-target:${dateKey(TODAY)}`, [
+      makeQueuedJob({ id: "filler-1", queuePosition: 0, estimatedDurationMinutes: 510, driveTimeMinutes: 0 }),
+    ]);
+
+    const db = createInMemoryTransferDb(profiles, state);
 
     const sourceQueue: QueuedJob[] = [
       makeQueuedJob({ id: "job-1", queuePosition: 0 }),
@@ -513,11 +515,13 @@ describe("executeTransfer", () => {
   it("capacity_changed when target is full", async () => {
     const profiles = [makeTechProfile("tech-source"), makeTechProfile("tech-target")];
     const state = freshState();
-    const db = createInMemoryTransferDb(profiles, state);
 
-    // Fill target capacity
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-target", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
+    // Fill target capacity via queue
+    state.queues.set(`tech-target:${dateKey(TODAY)}`, [
+      makeQueuedJob({ id: "filler-1", queuePosition: 0, estimatedDurationMinutes: 510, driveTimeMinutes: 0 }),
+    ]);
+
+    const db = createInMemoryTransferDb(profiles, state);
 
     const evaluation = makeRecommendation();
     const result = await executeTransfer(evaluation, "auto_same_day", "biz-1", db);
@@ -663,11 +667,13 @@ describe("executeBatchSameDayTransfers", () => {
   it("continues if one transfer fails", async () => {
     const profiles = [makeTechProfile("tech-source"), makeTechProfile("tech-target")];
     const state = freshState();
-    const db = createInMemoryTransferDb(profiles, state);
 
-    // Fill capacity so first job fails
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-target", TODAY, 480, "NO_PREFERENCE", db.capacityDb);
+    // Fill capacity so first job fails (only 30 min left of 510)
+    state.queues.set(`tech-target:${dateKey(TODAY)}`, [
+      makeQueuedJob({ id: "filler-1", queuePosition: 0, estimatedDurationMinutes: 480, driveTimeMinutes: 0 }),
+    ]);
+
+    const db = createInMemoryTransferDb(profiles, state);
 
     const evaluations: TransferEvaluation[] = [
       // This one needs 200 min — won't fit (only 30 left)
@@ -858,11 +864,13 @@ describe("timePreference carried through execution", () => {
   it("target full capacity but no MORNING sub-capacity -> capacity_changed", async () => {
     const profiles = [makeTechProfile("tech-source"), makeTechProfile("tech-target")];
     const state = freshState();
-    const db = createInMemoryTransferDb(profiles, state);
 
-    // Reserve all MORNING capacity (08:00-12:00 = 240 min)
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-target", TODAY, 240, "MORNING", db.capacityDb);
+    // Fill morning capacity via queue (240 min fills 08:00-12:00)
+    state.queues.set(`tech-target:${dateKey(TODAY)}`, [
+      makeQueuedJob({ id: "morning-filler", queuePosition: 0, estimatedDurationMinutes: 240, driveTimeMinutes: 0 }),
+    ]);
+
+    const db = createInMemoryTransferDb(profiles, state);
 
     const evaluation = makeRecommendationWithPref("MORNING", { totalCostMinutes: 60 });
     const result = await executeTransfer(evaluation, "auto_same_day", "biz-1", db);

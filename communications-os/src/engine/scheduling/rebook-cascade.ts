@@ -17,7 +17,7 @@
 // ============================================================
 
 import { isLockedState, type SchedulingJobStatus } from "./scheduling-state-machine";
-import { checkCapacity, reserveCapacity, releaseCapacity, type CapacityDb, type TimePreference } from "./capacity-math";
+import { checkCapacityFromQueue, type TimePreference, type TechProfile } from "./capacity-math";
 import { findOptimalPosition, type QueuedJob, type NewJobInput } from "./queue-insertion";
 import type { TechCandidate } from "./tech-assignment";
 import type { Coordinates, OsrmServiceDeps } from "./osrm-service";
@@ -99,8 +99,7 @@ export interface RebookCascadeDb {
   markJobNeedsRebook(jobId: string): Promise<void>;
   createRebookQueueEntry(jobId: string, originalDate: Date, originalTechnicianId: string, reason: string): Promise<void>;
 
-  // Capacity operations (delegated to CapacityDb interface)
-  capacityDb: CapacityDb;
+  getTechProfile(technicianId: string): Promise<TechProfile | null>;
 
   /** Pause guard operations. */
   pauseGuardDb: PauseGuardDb;
@@ -121,18 +120,12 @@ export async function findRebookSlot(
 
   for (const day of futureDays) {
     for (const tech of candidateTechs) {
-      // Check capacity for this tech on this day
-      const cap = await checkCapacity(
-        tech.id,
-        day,
-        job.totalCostMinutes,
-        job.timePreference,
-        db.capacityDb,
-      );
-      if (!cap.fits) continue;
-
-      // Load target queue and check insertion
+      // Load target queue and check capacity from it
       const queue = await db.getQueueForTechDate(tech.id, day);
+      const techProfile = await db.getTechProfile(tech.id);
+      if (!techProfile) continue;
+      const cap = checkCapacityFromQueue(queue, techProfile, job.totalCostMinutes, job.timePreference);
+      if (!cap.fits) continue;
       const techHomeBase: Coordinates = { lat: tech.homeBaseLat, lng: tech.homeBaseLng };
 
       const newJobInput: NewJobInput = {
@@ -188,29 +181,8 @@ export async function rebookSingleJob(
   const slot = await findRebookSlot(job, candidateTechs, businessDayProvider, db, osrmDeps);
 
   if (slot) {
-    // Move semantics: reserve destination capacity, release source capacity.
-    // Skip release when same tech + same date (no net change).
-    const sameTechSameDate =
-      slot.technicianId === job.technicianId &&
-      slot.date.toISOString() === job.scheduledDate.toISOString();
-
+    // No separate capacity counter — the job move IS the capacity change.
     await db.transaction(async (tx) => {
-      await reserveCapacity(
-        slot.technicianId,
-        slot.date,
-        job.totalCostMinutes,
-        job.timePreference,
-        tx.capacityDb,
-      );
-      if (!sameTechSameDate) {
-        await releaseCapacity(
-          job.technicianId,
-          job.scheduledDate,
-          job.totalCostMinutes,
-          job.timePreference,
-          tx.capacityDb,
-        );
-      }
       await tx.updateJobSchedule(job.jobId, slot.technicianId, slot.date, slot.queuePosition);
       await tx.incrementRebookCount(job.jobId);
     });
@@ -318,14 +290,14 @@ async function attemptSameDayRedistribution(
     totalCostMinutes: job.totalCostMinutes,
   };
 
-  // Try each candidate in order — capacity check + queue insertion
+  // Try each candidate in order — queue-based capacity check + queue insertion
   for (const tech of candidateTechs) {
-    const cap = await checkCapacity(
-      tech.id, date, job.totalCostMinutes, job.timePreference, db.capacityDb,
-    );
+    const queue = await db.getQueueForTechDate(tech.id, date);
+    const techProfile = await db.getTechProfile(tech.id);
+    if (!techProfile) continue;
+    const cap = checkCapacityFromQueue(queue, techProfile, job.totalCostMinutes, job.timePreference);
     if (!cap.fits) continue;
 
-    const queue = await db.getQueueForTechDate(tech.id, date);
     const techHomeBase: Coordinates = { lat: tech.homeBaseLat, lng: tech.homeBaseLng };
 
     const insertion = await findOptimalPosition(
@@ -333,17 +305,8 @@ async function attemptSameDayRedistribution(
     );
     if (!insertion.valid) continue;
 
-    // Move semantics: reserve destination, release source (different tech on same day).
-    const sameTech = tech.id === job.technicianId;
+    // No separate capacity counter — the job move IS the capacity change.
     await db.transaction(async (tx) => {
-      await reserveCapacity(
-        tech.id, date, job.totalCostMinutes, job.timePreference, tx.capacityDb,
-      );
-      if (!sameTech) {
-        await releaseCapacity(
-          job.technicianId, job.scheduledDate, job.totalCostMinutes, job.timePreference, tx.capacityDb,
-        );
-      }
       await tx.updateJobSchedule(job.jobId, tech.id, date, insertion.position);
     });
 

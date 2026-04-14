@@ -6,13 +6,13 @@
 //
 // Assumptions:
 //   - BusinessDayProvider is faked to return deterministic dates.
-//   - CapacityDb is in-memory (from capacity-math module).
+//   - Capacity is derived from the queue (no separate counter).
 //   - OSRM is mocked to return fixed drive times.
 //   - Queue insertion uses the real findOptimalPosition with
 //     mocked OSRM so geographic scoring is deterministic.
 // ============================================================
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   findRebookSlot,
   rebookSingleJob,
@@ -22,7 +22,7 @@ import {
   type RebookCascadeDb,
   type BusinessDayProvider,
 } from "../rebook-cascade";
-import { createInMemoryCapacityDb, checkCapacity, reserveCapacity as importedReserveCapacity, releaseCapacity as importedReleaseCapacity, type TechProfile } from "../capacity-math";
+import { type TechProfile, type TimePreference } from "../capacity-math";
 import type { TechCandidate } from "../tech-assignment";
 import type { QueuedJob } from "../queue-insertion";
 import type { OsrmServiceDeps } from "../osrm-service";
@@ -96,6 +96,47 @@ function makeJob(overrides: Partial<RebookableJob> = {}): RebookableJob {
   };
 }
 
+/** Create a queue job that consumes the given duration minutes. */
+function makeQueuedJob(
+  id: string,
+  durationMinutes: number,
+  overrides: Partial<QueuedJob> = {},
+): QueuedJob {
+  return {
+    id,
+    queuePosition: 0,
+    status: "NOT_STARTED" as SchedulingJobStatus,
+    timePreference: "NO_PREFERENCE" as TimePreference,
+    addressLat: 33.80,
+    addressLng: -84.40,
+    manualPosition: false,
+    estimatedDurationMinutes: durationMinutes,
+    driveTimeMinutes: 15,
+    ...overrides,
+  };
+}
+
+/**
+ * Fill a tech's queue for a given date so that capacity is consumed.
+ * Tech has 510 available minutes (08:00-17:00 minus 30min lunch).
+ */
+function fillQueue(
+  state: InMemoryState,
+  techId: string,
+  date: Date,
+  totalMinutes: number,
+): void {
+  const key = `${techId}:${dateKey(date)}`;
+  const existing = state.queues.get(key) ?? [];
+  existing.push(
+    makeQueuedJob(`filler-${techId}-${dateKey(date)}-${existing.length}`, totalMinutes, {
+      queuePosition: existing.length,
+      driveTimeMinutes: 0,
+    }),
+  );
+  state.queues.set(key, existing);
+}
+
 function mockOsrmDeps(fixedMinutes = 15): OsrmServiceDeps {
   return {
     baseUrl: "http://test:5000",
@@ -125,10 +166,13 @@ function createInMemoryRebookDb(
   techProfiles: TechProfile[],
   state: InMemoryState,
 ): RebookCascadeDb {
-  const capacityDb = createInMemoryCapacityDb(techProfiles);
+  const profileMap = new Map(techProfiles.map((p) => [p.id, p]));
 
   const db: RebookCascadeDb = {
-    capacityDb,
+    getTechProfile(technicianId: string) {
+      return Promise.resolve(profileMap.get(technicianId) ?? null);
+    },
+
     pauseGuardDb: {
       async getSchedulingMode() { return { mode: "active" as const }; },
     },
@@ -164,6 +208,17 @@ function createInMemoryRebookDb(
       state.updatedSchedules.push({ jobId, technicianId, date, queuePosition });
       const job = state.jobs.get(jobId);
       if (job) {
+        // Also update the queue so subsequent capacity checks see the consumed minutes
+        const key = `${technicianId}:${dateKey(date)}`;
+        const queue = state.queues.get(key) ?? [];
+        queue.push(
+          makeQueuedJob(`rebooked-${jobId}`, job.totalCostMinutes, {
+            queuePosition,
+            driveTimeMinutes: 0,
+          }),
+        );
+        state.queues.set(key, queue);
+
         job.technicianId = technicianId;
         job.scheduledDate = date;
         job.queuePosition = queuePosition;
@@ -190,7 +245,6 @@ function createInMemoryRebookDb(
     },
 
     async transaction<T>(fn: (tx: RebookCascadeDb) => Promise<T>): Promise<T> {
-      // In-memory: just execute directly (same as capacity-math pattern)
       return fn(db);
     },
   };
@@ -232,12 +286,10 @@ describe("findRebookSlot", () => {
     const tech = makeTechCandidate("tech-a");
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
+
+    fillQueue(state, "tech-a", DAY1, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
-
-    // Fill day 1 capacity completely
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-
     const job = makeJob();
     const osrm = mockOsrmDeps();
 
@@ -251,12 +303,11 @@ describe("findRebookSlot", () => {
     const tech = makeTechCandidate("tech-a");
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
+
+    fillQueue(state, "tech-a", DAY1, 510);
+    fillQueue(state, "tech-a", DAY2, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
-
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-a", DAY2, 510, "NO_PREFERENCE", db.capacityDb);
-
     const job = makeJob();
     const osrm = mockOsrmDeps();
 
@@ -270,13 +321,12 @@ describe("findRebookSlot", () => {
     const tech = makeTechCandidate("tech-a");
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
+
+    fillQueue(state, "tech-a", DAY1, 510);
+    fillQueue(state, "tech-a", DAY2, 510);
+    fillQueue(state, "tech-a", DAY3, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
-
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-a", DAY2, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-a", DAY3, 510, "NO_PREFERENCE", db.capacityDb);
-
     const job = makeJob();
     const osrm = mockOsrmDeps();
 
@@ -289,11 +339,11 @@ describe("findRebookSlot", () => {
     const tech = makeTechCandidate("tech-a");
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
-    const db = createInMemoryRebookDb(profiles, state);
 
-    // Fill morning capacity on day 1 (morning = 240 min)
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", DAY1, 200, "MORNING", db.capacityDb);
+    // Fill morning capacity on day 1 (morning = 240 min before lunch)
+    fillQueue(state, "tech-a", DAY1, 200);
+
+    const db = createInMemoryRebookDb(profiles, state);
 
     // Job needs 100 min MORNING — only 40 left in morning on day 1
     const job = makeJob({ timePreference: "MORNING", totalCostMinutes: 100 });
@@ -310,11 +360,13 @@ describe("findRebookSlot", () => {
     const tech = makeTechCandidate("tech-a");
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
-    const db = createInMemoryRebookDb(profiles, state);
 
-    // Fill afternoon capacity on day 1 (afternoon = 270 min)
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", DAY1, 250, "AFTERNOON", db.capacityDb);
+    // Fill afternoon capacity on day 1
+    // First fill morning so cursor advances past lunch, then fill afternoon
+    fillQueue(state, "tech-a", DAY1, 240); // fills morning
+    fillQueue(state, "tech-a", DAY1, 250); // fills most of afternoon
+
+    const db = createInMemoryRebookDb(profiles, state);
 
     const job = makeJob({ timePreference: "AFTERNOON", totalCostMinutes: 100 });
     const osrm = mockOsrmDeps();
@@ -330,18 +382,14 @@ describe("findRebookSlot", () => {
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
 
-    // Fill capacity on day 1 so no more jobs can fit.
-    // Tech has 510 available minutes (08:00-17:00 minus 30min lunch).
-    // Reserve all of it.
-    const db = createInMemoryRebookDb(profiles, state);
-    await importedReserveCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
+    fillQueue(state, "tech-a", DAY1, 510);
 
+    const db = createInMemoryRebookDb(profiles, state);
     const job = makeJob();
     const osrm = mockOsrmDeps();
 
     const slot = await findRebookSlot(job, [tech], BUSINESS_DAYS, db, osrm);
 
-    // Day 1 is at capacity → skips to day 2
     expect(slot).not.toBeNull();
     expect(dateKey(slot!.date)).toBe(dateKey(DAY2));
   });
@@ -355,8 +403,6 @@ describe("findRebookSlot", () => {
     const job = makeJob();
     const osrm = mockOsrmDeps();
 
-    // Both techs have capacity on day 1 and day 2.
-    // Day 1 + tech-a should be chosen regardless of day 2 having "better" conditions.
     const slot = await findRebookSlot(job, [techA, techB], BUSINESS_DAYS, db, osrm);
 
     expect(slot).not.toBeNull();
@@ -405,14 +451,12 @@ describe("rebookSingleJob", () => {
     const tech = makeTechCandidate("tech-a");
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
+
+    fillQueue(state, "tech-a", DAY1, 510);
+    fillQueue(state, "tech-a", DAY2, 510);
+    fillQueue(state, "tech-a", DAY3, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
-
-    // Fill all 3 days
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-a", DAY2, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-a", DAY3, 510, "NO_PREFERENCE", db.capacityDb);
-
     const job = makeJob();
     state.jobs.set(job.jobId, job);
     const osrm = mockOsrmDeps();
@@ -429,13 +473,12 @@ describe("rebookSingleJob", () => {
     const tech = makeTechCandidate("tech-a");
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
+
+    fillQueue(state, "tech-a", DAY1, 510);
+    fillQueue(state, "tech-a", DAY2, 510);
+    fillQueue(state, "tech-a", DAY3, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
-
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-a", DAY2, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-a", DAY3, 510, "NO_PREFERENCE", db.capacityDb);
-
     const job = makeJob();
     state.jobs.set(job.jobId, job);
     const osrm = mockOsrmDeps();
@@ -468,13 +511,12 @@ describe("rebookSingleJob", () => {
   it("needs_rebook path uses transaction (markJobNeedsRebook called)", async () => {
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
+
+    fillQueue(state, "tech-a", DAY1, 510);
+    fillQueue(state, "tech-a", DAY2, 510);
+    fillQueue(state, "tech-a", DAY3, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
-
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-a", DAY2, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-a", DAY3, 510, "NO_PREFERENCE", db.capacityDb);
-
     const job = makeJob();
     state.jobs.set(job.jobId, job);
     const osrm = mockOsrmDeps();
@@ -527,7 +569,7 @@ describe("redistributeSickTechJobs", () => {
     expect(result.redistributed[0]!.outcome).toBe("rebooked");
     if (result.redistributed[0]!.outcome === "rebooked") {
       expect(result.redistributed[0]!.technicianId).toBe("tech-b");
-      expect(dateKey(result.redistributed[0]!.date)).toBe(dateKey(TODAY)); // same-day
+      expect(dateKey(result.redistributed[0]!.date)).toBe(dateKey(TODAY));
     }
     expect(result.needsRebook).toHaveLength(0);
   });
@@ -540,22 +582,17 @@ describe("redistributeSickTechJobs", () => {
     state.jobs.set(job.jobId, job);
     state.techsByBusiness.set("biz-1", [otherTech]);
 
-    // Fill same-day capacity for tech-b so assignTech fails on same day
+    fillQueue(state, "tech-b", TODAY, 510);
+
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-b")];
     const db = createInMemoryRebookDb(profiles, state);
-
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-b", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
-
     const osrm = mockOsrmDeps();
 
     const result = await redistributeSickTechJobs("sick-tech", TODAY, "biz-1", BUSINESS_DAYS, db, osrm);
 
-    // Same-day fails → falls to future-day rebook
     expect(result.redistributed).toHaveLength(1);
     expect(result.redistributed[0]!.outcome).toBe("rebooked");
     if (result.redistributed[0]!.outcome === "rebooked") {
-      // Should be on a future day, not today
       expect(dateKey(result.redistributed[0]!.date)).toBe(dateKey(DAY1));
     }
   });
@@ -568,13 +605,10 @@ describe("redistributeSickTechJobs", () => {
     state.jobs.set(job.jobId, job);
     state.techsByBusiness.set("biz-1", [otherTech]);
 
+    fillQueue(state, "tech-b", TODAY, 510);
+
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-b")];
     const db = createInMemoryRebookDb(profiles, state);
-
-    // Fill same-day
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-b", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
-
     const osrm = mockOsrmDeps();
 
     const result = await redistributeSickTechJobs("sick-tech", TODAY, "biz-1", BUSINESS_DAYS, db, osrm);
@@ -594,13 +628,11 @@ describe("redistributeSickTechJobs", () => {
     state.jobs.set(job.jobId, job);
     state.techsByBusiness.set("biz-1", [otherTech]);
 
+    fillQueue(state, "tech-b", TODAY, 510);
+    fillQueue(state, "tech-b", DAY1, 510);
+
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-b")];
     const db = createInMemoryRebookDb(profiles, state);
-
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-b", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-b", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-
     const osrm = mockOsrmDeps();
 
     const result = await redistributeSickTechJobs("sick-tech", TODAY, "biz-1", BUSINESS_DAYS, db, osrm);
@@ -619,15 +651,13 @@ describe("redistributeSickTechJobs", () => {
     state.jobs.set(job.jobId, job);
     state.techsByBusiness.set("biz-1", [otherTech]);
 
+    fillQueue(state, "tech-b", TODAY, 510);
+    fillQueue(state, "tech-b", DAY1, 510);
+    fillQueue(state, "tech-b", DAY2, 510);
+    fillQueue(state, "tech-b", DAY3, 510);
+
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-b")];
     const db = createInMemoryRebookDb(profiles, state);
-
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-b", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-b", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-b", DAY2, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-b", DAY3, 510, "NO_PREFERENCE", db.capacityDb);
-
     const osrm = mockOsrmDeps();
 
     const result = await redistributeSickTechJobs("sick-tech", TODAY, "biz-1", BUSINESS_DAYS, db, osrm);
@@ -657,22 +687,20 @@ describe("redistributeSickTechJobs", () => {
       makeTechProfile("tech-b"),
       makeTechProfile("tech-c"),
     ];
+
+    // tech-b: has room for 1 job today (60 min left), then fully booked all future days
+    fillQueue(state, "tech-b", TODAY, 450);
+    fillQueue(state, "tech-b", DAY1, 510);
+    fillQueue(state, "tech-b", DAY2, 510);
+    fillQueue(state, "tech-b", DAY3, 510);
+
+    // tech-c: full today, has room for 1 job on day 1 (60 min left), then fully booked
+    fillQueue(state, "tech-c", TODAY, 510);
+    fillQueue(state, "tech-c", DAY1, 450);
+    fillQueue(state, "tech-c", DAY2, 510);
+    fillQueue(state, "tech-c", DAY3, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
-
-    const { reserveCapacity } = await import("../capacity-math");
-
-    // tech-b: has room for 1 job today (60 min), then fully booked all future days
-    await reserveCapacity("tech-b", TODAY, 450, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-b", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-b", DAY2, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-b", DAY3, 510, "NO_PREFERENCE", db.capacityDb);
-
-    // tech-c: full today, has room for 1 job on day 1, then fully booked
-    await reserveCapacity("tech-c", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-c", DAY1, 450, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-c", DAY2, 510, "NO_PREFERENCE", db.capacityDb);
-    await reserveCapacity("tech-c", DAY3, 510, "NO_PREFERENCE", db.capacityDb);
-
     const osrm = mockOsrmDeps();
 
     const result = await redistributeSickTechJobs("sick-tech", TODAY, "biz-1", BUSINESS_DAYS, db, osrm);
@@ -730,20 +758,17 @@ describe("markNeedsRebook", () => {
   });
 });
 
-// ── Capacity accounting (move semantics) ────────────────────────────────────
+// ── Capacity via queue (move semantics) ────────────────────────────────────
 
-describe("capacity accounting — move semantics", () => {
-  it("future-day rebook reserves destination AND releases source capacity", async () => {
+describe("capacity via queue — move semantics", () => {
+  it("rebooked job appears in updatedSchedules (the move IS the capacity change)", async () => {
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-a")];
     const state = freshState();
+
+    fillQueue(state, "tech-a", TODAY, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
     const osrm = mockOsrmDeps();
-
-    // Pre-reserve 100 min for the job on sick-tech's TODAY
-    await importedReserveCapacity("sick-tech", TODAY, 100, "NO_PREFERENCE", db.capacityDb);
-
-    // Fill same-day for tech-a so rebook goes to future day
-    await importedReserveCapacity("tech-a", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
 
     const job = makeJob({ technicianId: "sick-tech", totalCostMinutes: 100 });
     state.jobs.set(job.jobId, job);
@@ -753,19 +778,12 @@ describe("capacity accounting — move semantics", () => {
     );
 
     expect(result.outcome).toBe("rebooked");
-
-    // Source capacity should be released (sick-tech TODAY: 100 reserved → 0)
-    const srcCap = await checkCapacity("sick-tech", TODAY, 100, "NO_PREFERENCE", db.capacityDb);
-    expect(srcCap.fits).toBe(true); // released, so 100 min available again
-
-    // Destination capacity should be reserved (tech-a DAY1: 0 + 100 reserved = 410 avail)
-    const dstCap = await checkCapacity("tech-a", DAY1, 410, "NO_PREFERENCE", db.capacityDb);
-    expect(dstCap.fits).toBe(true);
-    const dstCapOver = await checkCapacity("tech-a", DAY1, 411, "NO_PREFERENCE", db.capacityDb);
-    expect(dstCapOver.fits).toBe(false);
+    expect(state.updatedSchedules).toHaveLength(1);
+    expect(state.updatedSchedules[0]!.technicianId).toBe("tech-a");
+    expect(dateKey(state.updatedSchedules[0]!.date)).toBe(dateKey(DAY1));
   });
 
-  it("same-day redistribution to another tech reserves target AND releases source", async () => {
+  it("same-day redistribution moves job to another tech", async () => {
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-b")];
     const state = freshState();
     state.techsByBusiness.set("biz-1", [
@@ -774,9 +792,6 @@ describe("capacity accounting — move semantics", () => {
     ]);
     const db = createInMemoryRebookDb(profiles, state);
     const osrm = mockOsrmDeps();
-
-    // Pre-reserve 100 min for the job on sick-tech's TODAY
-    await importedReserveCapacity("sick-tech", TODAY, 100, "NO_PREFERENCE", db.capacityDb);
 
     const job = makeJob({ technicianId: "sick-tech", totalCostMinutes: 100 });
     state.jobs.set(job.jobId, job);
@@ -789,66 +804,20 @@ describe("capacity accounting — move semantics", () => {
       expect(result.redistributed[0]!.technicianId).toBe("tech-b");
       expect(dateKey(result.redistributed[0]!.date)).toBe(dateKey(TODAY));
     }
-
-    // Source released
-    const srcCap = await checkCapacity("sick-tech", TODAY, 100, "NO_PREFERENCE", db.capacityDb);
-    expect(srcCap.fits).toBe(true);
-
-    // Destination reserved (510 - 100 = 410 available)
-    const dstCap = await checkCapacity("tech-b", TODAY, 410, "NO_PREFERENCE", db.capacityDb);
-    expect(dstCap.fits).toBe(true);
-    const dstCapOver = await checkCapacity("tech-b", TODAY, 411, "NO_PREFERENCE", db.capacityDb);
-    expect(dstCapOver.fits).toBe(false);
+    expect(state.updatedSchedules).toHaveLength(1);
+    expect(state.updatedSchedules[0]!.technicianId).toBe("tech-b");
   });
 
-  it("same-tech same-date move does NOT double-adjust capacity", async () => {
-    // Edge case: job moves within same tech and same date (e.g. queue reorder).
-    // No net capacity change should occur.
-    const profiles = [makeTechProfile("tech-a")];
-    const state = freshState();
-    const db = createInMemoryRebookDb(profiles, state);
-    const osrm = mockOsrmDeps();
-
-    // The job is already on tech-a, DAY1
-    await importedReserveCapacity("tech-a", DAY1, 100, "NO_PREFERENCE", db.capacityDb);
-    const job = makeJob({
-      technicianId: "tech-a",
-      scheduledDate: DAY1,
-      totalCostMinutes: 100,
-    });
-    state.jobs.set(job.jobId, job);
-
-    // rebookSingleJob will find a slot on DAY1 for tech-a (same tech, same date)
-    const result = await rebookSingleJob(
-      job, [makeTechCandidate("tech-a")], BUSINESS_DAYS, db, osrm,
-    );
-
-    expect(result.outcome).toBe("rebooked");
-
-    // Capacity should show 200 reserved (original 100 + new 100 reservation),
-    // because we skip release for same-tech-same-date but still reserve.
-    // This is correct: the reserve in rebookSingleJob is the move reservation;
-    // the original 100 was pre-existing. With same-tech-same-date, no release,
-    // so net = 200 reserved. 510 - 200 = 310 available.
-    const cap = await checkCapacity("tech-a", DAY1, 310, "NO_PREFERENCE", db.capacityDb);
-    expect(cap.fits).toBe(true);
-    const capOver = await checkCapacity("tech-a", DAY1, 311, "NO_PREFERENCE", db.capacityDb);
-    expect(capOver.fits).toBe(false);
-  });
-
-  it("NEEDS_REBOOK path does NOT release original capacity", async () => {
+  it("NEEDS_REBOOK path does NOT create an updateJobSchedule entry", async () => {
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-a")];
     const state = freshState();
+
+    fillQueue(state, "tech-a", DAY1, 510);
+    fillQueue(state, "tech-a", DAY2, 510);
+    fillQueue(state, "tech-a", DAY3, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
     const osrm = mockOsrmDeps();
-
-    // Pre-reserve on sick-tech
-    await importedReserveCapacity("sick-tech", TODAY, 100, "NO_PREFERENCE", db.capacityDb);
-
-    // Fill ALL days for tech-a so no slot exists
-    await importedReserveCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-    await importedReserveCapacity("tech-a", DAY2, 510, "NO_PREFERENCE", db.capacityDb);
-    await importedReserveCapacity("tech-a", DAY3, 510, "NO_PREFERENCE", db.capacityDb);
 
     const job = makeJob({ technicianId: "sick-tech", totalCostMinutes: 100 });
     state.jobs.set(job.jobId, job);
@@ -858,22 +827,15 @@ describe("capacity accounting — move semantics", () => {
     );
 
     expect(result.outcome).toBe("needs_rebook");
-
-    // Source capacity should NOT have been released (job is still "at" source
-    // until manual rebook happens). 510 - 100 = 410 available.
-    const srcCap = await checkCapacity("sick-tech", TODAY, 411, "NO_PREFERENCE", db.capacityDb);
-    expect(srcCap.fits).toBe(false); // 410 avail, 411 doesn't fit
-    const srcCapSmall = await checkCapacity("sick-tech", TODAY, 410, "NO_PREFERENCE", db.capacityDb);
-    expect(srcCapSmall.fits).toBe(true); // exactly 410 available
+    expect(state.updatedSchedules).toHaveLength(0);
+    expect(state.markedNeedsRebook).toContain("job-1");
   });
 
-  it("blocked_locked path does NOT change capacity", async () => {
+  it("blocked_locked path does NOT move the job", async () => {
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-a")];
     const state = freshState();
     const db = createInMemoryRebookDb(profiles, state);
     const osrm = mockOsrmDeps();
-
-    await importedReserveCapacity("sick-tech", TODAY, 100, "NO_PREFERENCE", db.capacityDb);
 
     const job = makeJob({ status: "EN_ROUTE", totalCostMinutes: 100 });
 
@@ -882,12 +844,8 @@ describe("capacity accounting — move semantics", () => {
     );
 
     expect(result.outcome).toBe("blocked_locked");
-
-    // Source not released, destination not reserved
-    const srcCap = await checkCapacity("sick-tech", TODAY, 411, "NO_PREFERENCE", db.capacityDb);
-    expect(srcCap.fits).toBe(false); // still 410 available (100 reserved)
-    const dstCap = await checkCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-    expect(dstCap.fits).toBe(true); // nothing reserved on tech-a
+    expect(state.updatedSchedules).toHaveLength(0);
+    expect(state.markedNeedsRebook).toHaveLength(0);
   });
 });
 
@@ -900,12 +858,11 @@ describe("multi-candidate same-day fallback", () => {
 
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-b"), makeTechProfile("tech-c")];
     const state = freshState();
-
-    // tech-b has NO capacity (fully reserved) → falls through to tech-c
     state.techsByBusiness.set("biz-1", [techB, techC]);
 
+    fillQueue(state, "tech-b", TODAY, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
-    await importedReserveCapacity("tech-b", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
     const osrm = mockOsrmDeps();
 
     const job = makeJob({ jobId: "job-1", status: "NOT_STARTED", totalCostMinutes: 60 });
@@ -916,7 +873,6 @@ describe("multi-candidate same-day fallback", () => {
     expect(result.redistributed).toHaveLength(1);
     expect(result.redistributed[0]!.outcome).toBe("rebooked");
     if (result.redistributed[0]!.outcome === "rebooked") {
-      // Should fall through to tech-c (same day), NOT fall to future-day rebook
       expect(result.redistributed[0]!.technicianId).toBe("tech-c");
       expect(dateKey(result.redistributed[0]!.date)).toBe(dateKey(TODAY));
     }
@@ -926,11 +882,10 @@ describe("multi-candidate same-day fallback", () => {
     const tech = makeTechCandidate("tech-a");
     const profiles = [makeTechProfile("tech-a")];
     const state = freshState();
+
+    fillQueue(state, "tech-a", DAY1, 510);
+
     const db = createInMemoryRebookDb(profiles, state);
-
-    // Fill day 1 so day 2 is the earliest valid
-    await importedReserveCapacity("tech-a", DAY1, 510, "NO_PREFERENCE", db.capacityDb);
-
     const job = makeJob();
     const osrm = mockOsrmDeps();
 
@@ -1017,7 +972,6 @@ describe("H8: pause guard on redistributeSickTechJobs", () => {
 
     const profiles = [makeTechProfile("sick-tech"), makeTechProfile("tech-a")];
     const db = createInMemoryRebookDb(profiles, state);
-    // Override pause guard to paused
     db.pauseGuardDb = {
       async getSchedulingMode() { return { mode: "paused" as const }; },
     };

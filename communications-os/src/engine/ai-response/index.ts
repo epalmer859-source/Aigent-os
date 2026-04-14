@@ -674,7 +674,7 @@ async function _generateAIResponseFromDb(
     const bookingStartTime = Date.now();
     try {
       const { generateAvailableSlots, bookSelectedSlot } = await import("~/engine/scheduling/ai-booking-pipeline");
-      const { createBookingOrchestratorDb, createCapacityDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+      const { createBookingOrchestratorDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
       const { randomUUID } = await import("crypto");
 
       // Gather customer data from the decision and conversation
@@ -842,9 +842,7 @@ async function _generateAIResponseFromDb(
 
               // Re-generate slots immediately so the customer doesn't have to wait another turn
               try {
-                const capacityDb = createCapacityDb(db);
                 const regenDeps = {
-                  capacityDb,
                   async getTechCandidates(bizId: string) {
                     const techs = await db.technicians.findMany({
                       where: { business_id: bizId, is_active: true },
@@ -911,10 +909,7 @@ async function _generateAIResponseFromDb(
           conversationState,
         });
 
-        const capacityDb = createCapacityDb(db);
-
         const slotDeps = {
-          capacityDb,
           async getTechCandidates(bizId: string) {
             console.log("[ai-response] STEP 1 — querying technicians for business:", bizId);
             const techs = await db.technicians.findMany({

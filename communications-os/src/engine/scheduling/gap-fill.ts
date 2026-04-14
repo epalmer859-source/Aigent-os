@@ -18,7 +18,7 @@
 // ============================================================
 
 import { isLockedState, type SchedulingJobStatus } from "./scheduling-state-machine";
-import { checkCapacity, reserveCapacity, releaseCapacity, type CapacityDb, type TimePreference } from "./capacity-math";
+import { checkCapacityFromQueue, type TimePreference, type TechProfile } from "./capacity-math";
 import { findOptimalPosition, type QueuedJob, type NewJobInput } from "./queue-insertion";
 import { getDriveTime, type Coordinates, type OsrmServiceDeps } from "./osrm-service";
 import { checkPauseGuard, type PauseGuardDb } from "./pause-guard";
@@ -120,7 +120,7 @@ export interface GapFillDb {
 
   updateJobSchedule(jobId: string, technicianId: string, date: Date, queuePosition: number): Promise<void>;
 
-  capacityDb: CapacityDb;
+  getTechProfile(technicianId: string): Promise<TechProfile | null>;
 
   /** Pause guard operations. */
   pauseGuardDb: PauseGuardDb;
@@ -341,13 +341,16 @@ export async function createPullForwardOffer(
     return { outcome: "no_candidates", reason: "no_valid_candidates" };
   }
 
-  // Check capacity on target
-  const cap = await checkCapacity(
-    targetTechId,
-    targetDate,
+  // Check capacity on target from queue
+  const targetTechProfile = await db.getTechProfile(targetTechId);
+  if (!targetTechProfile) {
+    return { outcome: "no_candidates", reason: "no_valid_candidates" };
+  }
+  const cap = checkCapacityFromQueue(
+    targetQueue,
+    targetTechProfile,
     scoredCandidate.candidate.totalCostMinutes,
     scoredCandidate.candidate.timePreference,
-    db.capacityDb,
   );
 
   if (!cap.fits) {
@@ -408,22 +411,26 @@ export async function acceptPullForward(
     return { outcome: "expired", jobId, reason: "offer_expired" };
   }
 
-  // Re-check capacity on target using real job cost and time preference
-  const cap = await checkCapacity(
-    offer.targetTechnicianId,
-    offer.targetDate,
-    offer.totalCostMinutes,
-    offer.timePreference,
-    db.capacityDb,
-  );
+  // Re-validate queue insertion: bounds + locked prefix check
+  const targetQueue = await db.getQueueForTechDate(offer.targetTechnicianId, offer.targetDate);
 
-  if (!cap.fits) {
+  // Re-check capacity on target from queue
+  const acceptTechProfile = await db.getTechProfile(offer.targetTechnicianId);
+  if (!acceptTechProfile) {
     await db.expirePullForwardOffer(jobId);
     return { outcome: "capacity_changed", jobId, reason: "slot_no_longer_available" };
   }
+  const acceptCap = checkCapacityFromQueue(
+    targetQueue,
+    acceptTechProfile,
+    offer.totalCostMinutes,
+    offer.timePreference,
+  );
 
-  // Re-validate queue insertion: bounds + locked prefix check
-  const targetQueue = await db.getQueueForTechDate(offer.targetTechnicianId, offer.targetDate);
+  if (!acceptCap.fits) {
+    await db.expirePullForwardOffer(jobId);
+    return { outcome: "capacity_changed", jobId, reason: "slot_no_longer_available" };
+  }
 
   if (offer.newQueuePosition > targetQueue.length) {
     await db.expirePullForwardOffer(jobId);
@@ -445,26 +452,8 @@ export async function acceptPullForward(
   const needsCapacityTransfer = isCrossTech || isCrossDate;
 
   await db.transaction(async (tx) => {
-    // Reserve capacity on target tech/date
-    if (needsCapacityTransfer) {
-      await reserveCapacity(
-        offer.targetTechnicianId,
-        offer.targetDate,
-        offer.totalCostMinutes,
-        offer.timePreference,
-        tx.capacityDb,
-      );
-
-      // Release capacity from original tech/date
-      await releaseCapacity(
-        offer.originalTechnicianId,
-        offer.originalDate,
-        offer.totalCostMinutes,
-        offer.timePreference,
-        tx.capacityDb,
-      );
-    }
-    // Same-tech same-date: no capacity change needed — job just moves within the queue
+    // No separate capacity counter to update — the job move IS the capacity change.
+    // The queue-based capacity check above already verified there's room.
 
     // Update job schedule
     await tx.updateJobSchedule(

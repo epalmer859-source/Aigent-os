@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { bookJob, type BookingOrchestratorDb, type BookingRequest, type ClockProvider } from "../booking-orchestrator";
-import { createInMemoryCapacityDb, type TechProfile } from "../capacity-math";
+import type { TechProfile } from "../capacity-math";
 import type { QueuedJob } from "../queue-insertion";
 import type { Coordinates } from "../osrm-service";
 
@@ -74,19 +74,22 @@ function createTestDb(
   techProfiles: TechProfile[] = [techProfile],
   existingQueue: QueuedJob[] = [],
 ): BookingOrchestratorDb & { _jobs: CreatedJob[]; _events: CreatedEvent[] } {
-  const capacityDb = createInMemoryCapacityDb(techProfiles);
+  const profiles = new Map<string, TechProfile>();
+  for (const tp of techProfiles) profiles.set(tp.id, tp);
   const jobs: CreatedJob[] = [];
   const events: CreatedEvent[] = [];
 
   const db: BookingOrchestratorDb & { _jobs: CreatedJob[]; _events: CreatedEvent[] } = {
     _jobs: jobs,
     _events: events,
-    capacityDb,
     pauseGuardDb: {
       async getSchedulingMode() { return { mode: "active" as const }; },
     },
     async getQueueForTechDate() {
       return existingQueue.map((j) => ({ ...j }));
+    },
+    async getTechProfile(technicianId: string) {
+      return profiles.get(technicianId) ?? null;
     },
     async createSchedulingJob(job) {
       jobs.push({ ...job } as unknown as CreatedJob);
@@ -106,7 +109,7 @@ function createTestDb(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("bookJob", () => {
-  it("creates job, reserves capacity, sets queue position, and creates event atomically", async () => {
+  it("creates job, checks capacity from queue, sets queue position, and creates event atomically", async () => {
     const db = createTestDb();
     const request = makeRequest();
 
@@ -131,11 +134,6 @@ describe("bookJob", () => {
     expect(db._events[0]!.oldValue).toBeNull();
     expect(db._events[0]!.newValue).toBe("NOT_STARTED");
     expect(db._events[0]!.triggeredBy).toBe("SYSTEM");
-
-    // Capacity was reserved
-    const reservation = await db.capacityDb.getReservation(TECH_ID, DATE);
-    expect(reservation).not.toBeNull();
-    expect(reservation!.reserved_minutes).toBe(60);
   });
 
   it("returns no_capacity when tech is fully booked", async () => {
@@ -147,9 +145,23 @@ describe("bookJob", () => {
       lunchEnd: "08:45",
       overtimeCapMinutes: 0,
     };
-    const db = createTestDb([smallCapTech]);
+    // Fill the queue so capacity is exhausted
+    const fullQueue: QueuedJob[] = [
+      {
+        id: "existing-1",
+        queuePosition: 0,
+        status: "NOT_STARTED",
+        timePreference: "NO_PREFERENCE",
+        addressLat: 40.71,
+        addressLng: -74.00,
+        manualPosition: false,
+        estimatedDurationMinutes: 45, // fills almost all of the 45-min capacity
+        driveTimeMinutes: 15,
+      },
+    ];
+    const db = createTestDb([smallCapTech], fullQueue);
 
-    // Try to book 120 minutes on a tech with only 60 available
+    // Try to book 120 minutes on a tech with only ~0 remaining
     const request = makeRequest({ totalCostMinutes: 120 });
 
     const result = await bookJob(request, techHomeBase, db, clock);
@@ -165,23 +177,28 @@ describe("bookJob", () => {
 
   it("returns no_morning_capacity for MORNING preference when morning is full", async () => {
     // Morning = 08:00–12:00 = 240 min
-    const db = createTestDb();
-
-    // First book 200 minutes as MORNING
-    const request1 = makeRequest({
-      jobId: "job-1",
-      totalCostMinutes: 200,
-      timePreference: "MORNING",
-    });
-    await bookJob(request1, techHomeBase, db, clock);
+    const fullMorningQueue: QueuedJob[] = [
+      {
+        id: "existing-morning",
+        queuePosition: 0,
+        status: "NOT_STARTED",
+        timePreference: "MORNING",
+        addressLat: 40.71,
+        addressLng: -74.00,
+        manualPosition: false,
+        estimatedDurationMinutes: 200,
+        driveTimeMinutes: 15,
+      },
+    ];
+    const db = createTestDb([techProfile], fullMorningQueue);
 
     // Try to book 100 more as MORNING — should fail
-    const request2 = makeRequest({
+    const request = makeRequest({
       jobId: "job-2",
       totalCostMinutes: 100,
       timePreference: "MORNING",
     });
-    const result = await bookJob(request2, techHomeBase, db, clock);
+    const result = await bookJob(request, techHomeBase, db, clock);
 
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -226,7 +243,7 @@ describe("bookJob", () => {
     expect(db._events[0]!.triggeredBy).toBe("SYSTEM");
   });
 
-  it("does not create job or event when capacity reservation fails", async () => {
+  it("does not create job or event when capacity is exhausted", async () => {
     // Create a tech with very limited capacity
     const tinyTech: TechProfile = {
       ...techProfile,
@@ -236,7 +253,21 @@ describe("bookJob", () => {
       lunchEnd: "08:30",
       overtimeCapMinutes: 0,
     };
-    const db = createTestDb([tinyTech]);
+    // Fill the queue
+    const fullQueue: QueuedJob[] = [
+      {
+        id: "existing-1",
+        queuePosition: 0,
+        status: "NOT_STARTED",
+        timePreference: "NO_PREFERENCE",
+        addressLat: 40.71,
+        addressLng: -74.00,
+        manualPosition: false,
+        estimatedDurationMinutes: 45,
+        driveTimeMinutes: 15,
+      },
+    ];
+    const db = createTestDb([tinyTech], fullQueue);
 
     const request = makeRequest({ totalCostMinutes: 120 });
     const result = await bookJob(request, techHomeBase, db, clock);

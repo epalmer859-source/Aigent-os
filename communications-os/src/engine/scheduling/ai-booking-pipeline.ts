@@ -19,7 +19,7 @@
 
 import type { QueuedJob } from "./queue-insertion";
 import { bookJob, type BookingRequest, type BookingOutcome } from "./booking-orchestrator";
-import { parseHHMM, calculateAvailableMinutes, type CapacityDb, type TimePreference, type TechProfile } from "./capacity-math";
+import { parseHHMM, calculateAvailableMinutes, type TimePreference, type TechProfile } from "./capacity-math";
 import type { BookingOrchestratorDb } from "./booking-orchestrator";
 import type { Coordinates } from "./osrm-service";
 import type { TechCandidate } from "./tech-assignment";
@@ -38,7 +38,6 @@ export interface SlotGenerationDeps {
   getDiagnosticMinutes: (businessId: string) => Promise<number>;
   getDiagnosticServiceTypeId: (businessId: string) => Promise<string>;
   getQueueForTechDate: (technicianId: string, date: Date) => Promise<QueuedJob[]>;
-  capacityDb: CapacityDb;
 }
 
 export interface AvailableSlot {
@@ -561,7 +560,6 @@ export interface FollowUpSlotGenerationDeps {
   getTechCandidates: (businessId: string) => Promise<TechCandidate[]>;
   getServiceTypeId: (businessId: string) => Promise<string>;
   getQueueForTechDate: (technicianId: string, date: Date) => Promise<QueuedJob[]>;
-  capacityDb: CapacityDb;
 }
 
 /**

@@ -26,7 +26,7 @@ import {
   type ScoredCandidate,
   type StaleOfferRecord,
 } from "../gap-fill";
-import { createInMemoryCapacityDb, type TechProfile } from "../capacity-math";
+import { type TechProfile, type TimePreference } from "../capacity-math";
 import type { QueuedJob } from "../queue-insertion";
 import type { OsrmServiceDeps } from "../osrm-service";
 
@@ -136,10 +136,10 @@ function createInMemoryGapFillDb(
   bookedCandidates: GapFillCandidate[] = [],
   waitlistedCandidates: GapFillCandidate[] = [],
 ): GapFillDb {
-  const capacityDb = createInMemoryCapacityDb(techProfiles);
+  const profileMap = new Map(techProfiles.map((p) => [p.id, p]));
 
   const db: GapFillDb = {
-    capacityDb,
+    async getTechProfile(id: string) { return profileMap.get(id) ?? null; },
     pauseGuardDb: {
       async getSchedulingMode() { return { mode: "active" as const }; },
     },
@@ -813,11 +813,17 @@ describe("acceptPullForward capacity checks", () => {
   it("uses real totalCostMinutes + timePreference for capacity check", async () => {
     const profiles = [{ id: "tech-a", businessId: "biz-1", workingHoursStart: "08:00", workingHoursEnd: "17:00", lunchStart: "12:00", lunchEnd: "12:30", overtimeCapMinutes: 0 }];
     const state = freshGapFillState();
-    const db = createInMemoryGapFillDb(profiles, state);
 
-    // Fill capacity almost completely — only 30 min left
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", TODAY, 480, "NO_PREFERENCE", db.capacityDb);
+    // Fill queue so only 30 min remain (510 total - 480 used = 30)
+    const fillerJob: QueuedJob = {
+      id: "filler-1", queuePosition: 0, status: "NOT_STARTED",
+      timePreference: "NO_PREFERENCE" as TimePreference,
+      addressLat: 33.75, addressLng: -84.39, manualPosition: false,
+      estimatedDurationMinutes: 480, driveTimeMinutes: 0,
+    };
+    state.queues.set(`tech-a:${dateKey(TODAY)}`, [fillerJob]);
+
+    const db = createInMemoryGapFillDb(profiles, state);
 
     const offer: PullForwardOffer = {
       gapId: "gap-1",
@@ -848,11 +854,17 @@ describe("acceptPullForward capacity checks", () => {
   it("target has total capacity but no MORNING sub-capacity -> capacity_changed", async () => {
     const profiles = [{ id: "tech-a", businessId: "biz-1", workingHoursStart: "08:00", workingHoursEnd: "17:00", lunchStart: "12:00", lunchEnd: "12:30", overtimeCapMinutes: 0 }];
     const state = freshGapFillState();
-    const db = createInMemoryGapFillDb(profiles, state);
 
-    // Fill MORNING capacity (08:00-12:00 = 240 min)
-    const { reserveCapacity } = await import("../capacity-math");
-    await reserveCapacity("tech-a", TODAY, 240, "MORNING", db.capacityDb);
+    // Fill morning capacity with queue jobs (240 min of morning work)
+    const morningFiller: QueuedJob = {
+      id: "morning-filler", queuePosition: 0, status: "NOT_STARTED",
+      timePreference: "NO_PREFERENCE" as TimePreference,
+      addressLat: 33.75, addressLng: -84.39, manualPosition: false,
+      estimatedDurationMinutes: 240, driveTimeMinutes: 0,
+    };
+    state.queues.set(`tech-a:${dateKey(TODAY)}`, [morningFiller]);
+
+    const db = createInMemoryGapFillDb(profiles, state);
 
     const offer: PullForwardOffer = {
       gapId: "gap-1",
@@ -882,6 +894,7 @@ describe("acceptPullForward capacity checks", () => {
   it("target has capacity -> accept succeeds", async () => {
     const profiles = [{ id: "tech-a", businessId: "biz-1", workingHoursStart: "08:00", workingHoursEnd: "17:00", lunchStart: "12:00", lunchEnd: "12:30", overtimeCapMinutes: 0 }];
     const state = freshGapFillState();
+    // Empty queue = full capacity available
     const db = createInMemoryGapFillDb(profiles, state);
     const clock = makeClock(new Date("2026-04-09T10:05:00Z"));
 
@@ -913,13 +926,10 @@ describe("acceptPullForward capacity checks", () => {
 // ── Capacity accounting tests ───────────────────────────────────────────────
 
 describe("acceptPullForward capacity accounting", () => {
-  it("same-tech same-date accept does NOT reserve/release (no double-counting)", async () => {
+  it("same-tech same-date: job move IS the capacity change, no separate accounting", async () => {
     const profiles = [{ id: "tech-a", businessId: "biz-1", workingHoursStart: "08:00", workingHoursEnd: "17:00", lunchStart: "12:00", lunchEnd: "12:30", overtimeCapMinutes: 0 }];
     const state = freshGapFillState();
     const db = createInMemoryGapFillDb(profiles, state);
-
-    // Spy on reserveCapacity via capacityDb
-    const reserveSpy = vi.spyOn(db.capacityDb, "getReservation");
 
     const offer: PullForwardOffer = {
       gapId: "gap-1",
@@ -944,25 +954,17 @@ describe("acceptPullForward capacity accounting", () => {
     const result = await acceptPullForward("job-1", "biz-1", clock, db);
 
     expect(result.outcome).toBe("accepted");
-    // Job schedule updated but no capacity churn
+    // The move (updateJobSchedule) IS the capacity change
     expect(state.updatedSchedules).toHaveLength(1);
-    // If we check capacity, it should still be 510 available (nothing reserved by accept)
-    const { checkCapacity } = await import("../capacity-math");
-    const cap = await checkCapacity("tech-a", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
-    expect(cap.fits).toBe(true);
   });
 
-  it("cross-tech accept reserves target and releases original", async () => {
+  it("cross-tech accept moves job to target tech", async () => {
     const profiles = [
       { id: "tech-a", businessId: "biz-1", workingHoursStart: "08:00", workingHoursEnd: "17:00", lunchStart: "12:00", lunchEnd: "12:30", overtimeCapMinutes: 0 },
       { id: "tech-b", businessId: "biz-1", workingHoursStart: "08:00", workingHoursEnd: "17:00", lunchStart: "12:00", lunchEnd: "12:30", overtimeCapMinutes: 0 },
     ];
     const state = freshGapFillState();
     const db = createInMemoryGapFillDb(profiles, state);
-
-    // Pre-reserve 40 min on original tech-b (the job's current capacity)
-    const { reserveCapacity: reserve, checkCapacity: check } = await import("../capacity-math");
-    await reserve("tech-b", TODAY, 40, "NO_PREFERENCE", db.capacityDb);
 
     const offer: PullForwardOffer = {
       gapId: "gap-1",
@@ -987,27 +989,18 @@ describe("acceptPullForward capacity accounting", () => {
     const result = await acceptPullForward("job-1", "biz-1", clock, db);
 
     expect(result.outcome).toBe("accepted");
-
-    // Target tech-a should now have 40 min reserved
-    const capA = await check("tech-a", TODAY, 471, "NO_PREFERENCE", db.capacityDb);
-    expect(capA.fits).toBe(false); // 510 - 40 = 470 left, need 471
-
-    // Original tech-b should have 0 reserved (40 reserved then 40 released)
-    const capB = await check("tech-b", TODAY, 510, "NO_PREFERENCE", db.capacityDb);
-    expect(capB.fits).toBe(true);
+    // Job moved to target tech-a
+    expect(state.updatedSchedules).toHaveLength(1);
+    expect(state.updatedSchedules[0]!.technicianId).toBe("tech-a");
   });
 
-  it("cross-date accept reserves new date and releases original date", async () => {
+  it("cross-date accept moves job to target date", async () => {
     const profiles = [
       { id: "tech-a", businessId: "biz-1", workingHoursStart: "08:00", workingHoursEnd: "17:00", lunchStart: "12:00", lunchEnd: "12:30", overtimeCapMinutes: 0 },
     ];
     const state = freshGapFillState();
-    const db = createInMemoryGapFillDb(profiles, state);
     const TOMORROW = new Date("2026-04-10");
-
-    // Pre-reserve 40 min on original date
-    const { reserveCapacity: reserve, checkCapacity: check } = await import("../capacity-math");
-    await reserve("tech-a", TOMORROW, 40, "NO_PREFERENCE", db.capacityDb);
+    const db = createInMemoryGapFillDb(profiles, state);
 
     const offer: PullForwardOffer = {
       gapId: "gap-1",
@@ -1032,14 +1025,9 @@ describe("acceptPullForward capacity accounting", () => {
     const result = await acceptPullForward("job-1", "biz-1", clock, db);
 
     expect(result.outcome).toBe("accepted");
-
-    // Today should have 40 reserved
-    const capToday = await check("tech-a", TODAY, 471, "NO_PREFERENCE", db.capacityDb);
-    expect(capToday.fits).toBe(false);
-
-    // Tomorrow should be fully free (40 reserved then 40 released)
-    const capTomorrow = await check("tech-a", TOMORROW, 510, "NO_PREFERENCE", db.capacityDb);
-    expect(capTomorrow.fits).toBe(true);
+    // Job moved to today
+    expect(state.updatedSchedules).toHaveLength(1);
+    expect(dateKey(state.updatedSchedules[0]!.date)).toBe(dateKey(TODAY));
   });
 });
 

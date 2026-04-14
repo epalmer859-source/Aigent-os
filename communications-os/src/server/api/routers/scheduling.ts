@@ -18,7 +18,6 @@ import {
   createGapFillDb,
   createTransferDb,
   createSchedulingStateMachineDb,
-  createCapacityDb,
   createPauseGuardDb,
   createOsrmDeps,
 } from "~/engine/scheduling/prisma-scheduling-adapter";
@@ -715,8 +714,13 @@ export const schedulingRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const capacityDb = createCapacityDb(ctx.db);
-      return capacityDb.getReservation(input.technicianId, new Date(input.date));
+      const { getTechProfile } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+      const { checkCapacityFromQueue } = await import("~/engine/scheduling/capacity-math");
+      const date = new Date(input.date);
+      const tech = await getTechProfile(ctx.db, input.technicianId);
+      if (!tech) return null;
+      const queue = await createBookingOrchestratorDb(ctx.db).getQueueForTechDate(input.technicianId, date);
+      return checkCapacityFromQueue(queue, tech, 0, "NO_PREFERENCE");
     }),
 
   // ── Get queue for a tech on a date ─────────────────────────
