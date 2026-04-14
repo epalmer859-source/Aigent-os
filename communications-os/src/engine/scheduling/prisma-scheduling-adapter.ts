@@ -1740,7 +1740,7 @@ export function createCancellationDb(prisma: PrismaClient): CancellationDb {
         SELECT DISTINCT customer_id
         FROM customer_contacts
         WHERE business_id = ${businessId}::uuid
-          AND contact_type = 'sms'
+          AND contact_type = 'phone'
           AND regexp_replace(contact_value, '[^0-9]', '', 'g') LIKE '%' || ${phone} || '%'
       `;
       return rows.map((r) => r.customer_id);
