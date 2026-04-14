@@ -796,8 +796,20 @@ async function _generateAIResponseFromDb(
               bookingResponseOverride = `Great news, ${customerName}! Your appointment is booked — ${result.techName} will be heading your way ${dateStr}.${queueNote} We'll send you a heads-up when they're on the way.${bizPhone}`;
               console.log("[ai-response] STEP 2 SUCCESS — jobId:", result.jobId, "tech:", result.techName, "date:", dateStr);
 
-              // Force state to booked — don't rely on AI setting this correctly
+              // Force state to booked — bypass state machine validation.
+              // The booking succeeded in the DB, so the conversation MUST
+              // move to "booked" regardless of what intermediate state it's in.
               effectiveDecision.proposed_state_change = "booked";
+              try {
+                await db.conversations.update({
+                  where: { id: conversationId },
+                  data: { primary_state: "booked" as any },
+                });
+                updateConversationState(conversationId, "booked");
+                console.log("[ai-response] forced state → booked (bypassed validation)");
+              } catch (stateErr) {
+                console.warn("[ai-response] failed to force state to booked:", stateErr);
+              }
 
               // Build and persist conversation summary
               const summaryDate = result.scheduledDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });

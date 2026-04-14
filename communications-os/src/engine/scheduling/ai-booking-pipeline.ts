@@ -322,13 +322,13 @@ export async function generateAvailableSlots(
         deps.capacityDb,
       );
       if (!cap.fits) {
-        console.log(`[slot-gen] ${tech.name} on ${dateStr}: SKIP capacity (remaining=${cap.remainingTotal}, need=${totalCostMinutes})`);
+        console.log(`[slot-gen] ${tech.name} on ${dateStr}: SKIP capacity (remainingTotal=${cap.remainingTotal}, remainingMorning=${cap.remainingMorning}, remainingAfternoon=${cap.remainingAfternoon}, need=${totalCostMinutes}, pref=${timePreference})`);
         continue;
       }
 
       // Get current queue for this tech on this date
       const queue = await deps.getQueueForTechDate(tech.id, date);
-      console.log(`[slot-gen] ${tech.name} on ${dateStr}: ${queue.length} queued jobs, capacity remaining=${cap.remainingTotal}`);
+      console.log(`[slot-gen] ${tech.name} on ${dateStr}: ${queue.length} queued jobs, capacity remaining=${cap.remainingTotal}, jobs: [${queue.map(j => `${j.id.slice(0,8)}:est${j.estimatedDurationMinutes}+drv${j.driveTimeMinutes}:${j.status}`).join(", ")}]`);
 
       // Compute all available time windows (morning, afternoon, etc.)
       const windows = computeAvailableWindows(queue, tech, totalCostMinutes);
