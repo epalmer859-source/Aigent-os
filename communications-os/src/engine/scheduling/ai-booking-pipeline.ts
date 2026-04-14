@@ -311,8 +311,7 @@ export async function generateAvailableSlots(
     for (const tech of techs) {
       if (!tech.isActive) continue;
 
-      // Skill tag check skipped for diagnostics — every tech can do a diagnostic.
-      // Skill tags will be used for known return-visit jobs with specific service types.
+      const dateStr = date.toISOString().split("T")[0];
 
       // Check capacity for this tech on this date
       const cap = await checkCapacity(
@@ -322,14 +321,22 @@ export async function generateAvailableSlots(
         timePreference,
         deps.capacityDb,
       );
-      if (!cap.fits) continue;
+      if (!cap.fits) {
+        console.log(`[slot-gen] ${tech.name} on ${dateStr}: SKIP capacity (remaining=${cap.remainingTotal}, need=${totalCostMinutes})`);
+        continue;
+      }
 
       // Get current queue for this tech on this date
       const queue = await deps.getQueueForTechDate(tech.id, date);
+      console.log(`[slot-gen] ${tech.name} on ${dateStr}: ${queue.length} queued jobs, capacity remaining=${cap.remainingTotal}`);
 
       // Compute all available time windows (morning, afternoon, etc.)
       const windows = computeAvailableWindows(queue, tech, totalCostMinutes);
-      if (windows.length === 0) continue;
+      if (windows.length === 0) {
+        console.log(`[slot-gen] ${tech.name} on ${dateStr}: SKIP no windows (queue jobs: ${queue.map(j => `pos${j.queuePosition}:${j.estimatedDurationMinutes}min+${j.driveTimeMinutes}drive`).join(", ")})`);
+        continue;
+      }
+      console.log(`[slot-gen] ${tech.name} on ${dateStr}: ${windows.length} windows found at minutes [${windows.map(w => w.startMinutes).join(", ")}]`);
 
       const lunchStart = parseHHMM(tech.lunchStart);
 
