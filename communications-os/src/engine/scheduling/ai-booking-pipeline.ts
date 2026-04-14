@@ -187,7 +187,10 @@ function computeAvailableWindows(
   const overtime = tech.overtimeCapMinutes ?? 0;
   const dayEnd = workEnd + overtime;
 
-  // Build a list of occupied intervals from the existing queue
+  // Build a list of occupied intervals from the existing queue.
+  // estimatedDurationMinutes already includes drive TO this job (it's stored
+  // as totalCostMinutes = serviceTime + driveTime). The service duration is
+  // the on-site work; drive between jobs is handled by cursor advancement.
   const occupied: { start: number; end: number }[] = [];
   let cursor = workStart;
   for (const job of queue) {
@@ -195,10 +198,11 @@ function computeAvailableWindows(
     if (cursor >= lunchStart && cursor < lunchEnd) {
       cursor = lunchEnd;
     }
-    const jobDuration = job.estimatedDurationMinutes + job.driveTimeMinutes;
-    occupied.push({ start: cursor, end: cursor + jobDuration });
-    cursor += jobDuration;
-    // Skip lunch if job pushed us into it
+    const serviceDuration = job.estimatedDurationMinutes - (job.driveTimeMinutes || 0);
+    const driveToNext = job.driveTimeMinutes || 15;
+    occupied.push({ start: cursor, end: cursor + serviceDuration });
+    cursor += serviceDuration + driveToNext;
+    // Skip lunch if drive pushed us into it
     if (cursor > lunchStart && cursor < lunchEnd) {
       cursor = lunchEnd;
     }
@@ -329,16 +333,26 @@ export async function generateAvailableSlots(
 
       const lunchStart = parseHHMM(tech.lunchStart);
 
+      const workStart = parseHHMM(tech.workingHoursStart);
+
       for (const window of windows) {
         const techArrivalMinutes = window.startMinutes;
 
-        // Customer-facing window uses Rule 1 (Diagnostic):
-        // start = tech arrival + 1 hour, end = start + 3 hours
-        // This is the window we TELL the customer; the capacity cost
-        // (totalCostMinutes) is what we BLOCK on the tech's schedule.
-        const windowStart = roundTo15(techArrivalMinutes + 60);   // +1hr after arrival
-        const windowEnd = roundTo15(windowStart + 180);           // +3hr window
-        const windowWidth = windowEnd - windowStart;
+        // First appointment of the day: tech leaves from home at a known time,
+        // so give a tight 30-minute window (e.g. 8:00 AM – 8:30 AM).
+        // All other slots use Rule 1 (Diagnostic): 3-hour window.
+        const isFirstOfDay = techArrivalMinutes === workStart && window.queuePosition === 0;
+
+        let windowStart: number;
+        let windowEnd: number;
+        if (isFirstOfDay) {
+          windowStart = workStart;
+          windowEnd = workStart + 30;
+        } else {
+          // Rule 1: start = tech arrival + 1 hour, end = start + 3 hours
+          windowStart = roundTo15(techArrivalMinutes + 60);
+          windowEnd = roundTo15(windowStart + 180);
+        }
 
         // Filter by time-of-day preference using customer's cutoff time
         // Morning: entire window must end before cutoff (customer unavailable after cutoff)
@@ -643,25 +657,36 @@ export async function generateFollowUpSlots(
       if (windows.length === 0) continue;
 
       const lunchStart = parseHHMM(tech.lunchStart);
+      const followUpWorkStart = parseHHMM(tech.workingHoursStart);
 
       for (const window of windows) {
         const rawStart = window.startMinutes;
 
-        // Window start depends on which rule applies:
-        //   Rule 2A: 1 hour after tech arrives (at this job)
-        //   Rule 2B: tech's low estimate after arrival
-        //   Rule 3:  midpoint of low/high after arrival
-        let windowStartOffset: number;
-        if (rule === "2A") {
-          windowStartOffset = 60; // 1 hour
-        } else if (rule === "2B") {
-          windowStartOffset = estimatedLowMinutes;
-        } else {
-          windowStartOffset = midpointMinutes;
-        }
+        // First appointment of the day: tight 30-minute window
+        const isFirstOfDay = rawStart === followUpWorkStart && window.queuePosition === 0;
 
-        const windowStart = roundTo15(rawStart + windowStartOffset);
-        const windowEnd = roundTo15(windowStart + windowDurationMinutes);
+        let windowStart: number;
+        let windowEnd: number;
+        if (isFirstOfDay) {
+          windowStart = followUpWorkStart;
+          windowEnd = followUpWorkStart + 30;
+        } else {
+          // Window start depends on which rule applies:
+          //   Rule 2A: 1 hour after tech arrives (at this job)
+          //   Rule 2B: tech's low estimate after arrival
+          //   Rule 3:  midpoint of low/high after arrival
+          let windowStartOffset: number;
+          if (rule === "2A") {
+            windowStartOffset = 60; // 1 hour
+          } else if (rule === "2B") {
+            windowStartOffset = estimatedLowMinutes;
+          } else {
+            windowStartOffset = midpointMinutes;
+          }
+
+          windowStart = roundTo15(rawStart + windowStartOffset);
+          windowEnd = roundTo15(windowStart + windowDurationMinutes);
+        }
 
         // Filter: must fit within the working day
         const workEnd = parseHHMM(tech.workingHoursEnd) + (tech.overtimeCapMinutes ?? 0);
