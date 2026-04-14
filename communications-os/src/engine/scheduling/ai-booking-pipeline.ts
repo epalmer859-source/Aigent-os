@@ -19,7 +19,7 @@
 
 import type { QueuedJob } from "./queue-insertion";
 import { bookJob, type BookingRequest, type BookingOutcome } from "./booking-orchestrator";
-import { checkCapacity, parseHHMM, calculateAvailableMinutes, type CapacityDb, type TimePreference, type TechProfile } from "./capacity-math";
+import { parseHHMM, calculateAvailableMinutes, type CapacityDb, type TimePreference, type TechProfile } from "./capacity-math";
 import type { BookingOrchestratorDb } from "./booking-orchestrator";
 import type { Coordinates } from "./osrm-service";
 import type { TechCandidate } from "./tech-assignment";
@@ -313,22 +313,48 @@ export async function generateAvailableSlots(
 
       const dateStr = date.toISOString().split("T")[0];
 
-      // Check capacity for this tech on this date
-      const cap = await checkCapacity(
-        tech.id,
-        date,
-        totalCostMinutes,
-        timePreference,
-        deps.capacityDb,
-      );
-      if (!cap.fits) {
-        console.log(`[slot-gen] ${tech.name} on ${dateStr}: SKIP capacity (remainingTotal=${cap.remainingTotal}, remainingMorning=${cap.remainingMorning}, remainingAfternoon=${cap.remainingAfternoon}, need=${totalCostMinutes}, pref=${timePreference})`);
+      // Get current queue for this tech on this date FIRST —
+      // then compute capacity from actual jobs rather than the reservation
+      // counter, which can drift out of sync from test bookings or bugs.
+      const queue = await deps.getQueueForTechDate(tech.id, date);
+      const avail = calculateAvailableMinutes(tech);
+      const lunchStartMin = parseHHMM(tech.lunchStart);
+
+      // Compute actual reserved minutes from the queue (ground truth)
+      let actualReserved = 0;
+      let actualMorningReserved = 0;
+      let actualAfternoonReserved = 0;
+      let queueCursor = parseHHMM(tech.workingHoursStart);
+      for (const job of queue) {
+        if (queueCursor >= lunchStartMin && queueCursor < parseHHMM(tech.lunchEnd)) {
+          queueCursor = parseHHMM(tech.lunchEnd);
+        }
+        const jobCost = job.estimatedDurationMinutes;
+        actualReserved += jobCost;
+        if (queueCursor < lunchStartMin) {
+          actualMorningReserved += jobCost;
+        } else {
+          actualAfternoonReserved += jobCost;
+        }
+        const serviceDur = job.estimatedDurationMinutes - (job.driveTimeMinutes || 0);
+        queueCursor += serviceDur + (job.driveTimeMinutes || 15);
+      }
+
+      const remainingTotal = avail.totalMinutes - actualReserved;
+      const remainingMorning = avail.morningMinutes - actualMorningReserved;
+      const remainingAfternoon = avail.afternoonMinutes - actualAfternoonReserved;
+
+      // Check if the new job fits
+      let capacityFits = remainingTotal >= totalCostMinutes;
+      if (timePreference === "MORNING" && remainingMorning < totalCostMinutes) capacityFits = false;
+      if (timePreference === "AFTERNOON" && remainingAfternoon < totalCostMinutes) capacityFits = false;
+
+      if (!capacityFits) {
+        console.log(`[slot-gen] ${tech.name} on ${dateStr}: SKIP capacity (remainingTotal=${remainingTotal}, remainingMorning=${remainingMorning}, remainingAfternoon=${remainingAfternoon}, need=${totalCostMinutes}, pref=${timePreference}, queueJobs=${queue.length}, actualReserved=${actualReserved})`);
         continue;
       }
 
-      // Get current queue for this tech on this date
-      const queue = await deps.getQueueForTechDate(tech.id, date);
-      console.log(`[slot-gen] ${tech.name} on ${dateStr}: ${queue.length} queued jobs, capacity remaining=${cap.remainingTotal}, jobs: [${queue.map(j => `${j.id.slice(0,8)}:est${j.estimatedDurationMinutes}+drv${j.driveTimeMinutes}:${j.status}`).join(", ")}]`);
+      console.log(`[slot-gen] ${tech.name} on ${dateStr}: ${queue.length} queued jobs, capacity remaining=${remainingTotal} (from queue), jobs: [${queue.map(j => `${j.id.slice(0,8)}:est${j.estimatedDurationMinutes}+drv${j.driveTimeMinutes}:${j.status}`).join(", ")}]`);
 
       // Compute all available time windows (morning, afternoon, etc.)
       const windows = computeAvailableWindows(queue, tech, totalCostMinutes);
@@ -649,16 +675,33 @@ export async function generateFollowUpSlots(
     for (const tech of sortedTechs) {
       if (!tech.isActive) continue;
 
-      const cap = await checkCapacity(
-        tech.id,
-        date,
-        totalCostMinutes,
-        timePreference,
-        deps.capacityDb,
-      );
-      if (!cap.fits) continue;
-
+      // Compute capacity from actual queue (same approach as diagnostic slots)
       const queue = await deps.getQueueForTechDate(tech.id, date);
+      const followUpAvail = calculateAvailableMinutes(tech);
+      const followUpLunchStartMin = parseHHMM(tech.lunchStart);
+      let followUpReserved = 0;
+      let followUpMorningRes = 0;
+      let followUpAfternoonRes = 0;
+      let followUpCursor = parseHHMM(tech.workingHoursStart);
+      for (const job of queue) {
+        if (followUpCursor >= followUpLunchStartMin && followUpCursor < parseHHMM(tech.lunchEnd)) {
+          followUpCursor = parseHHMM(tech.lunchEnd);
+        }
+        followUpReserved += job.estimatedDurationMinutes;
+        if (followUpCursor < followUpLunchStartMin) {
+          followUpMorningRes += job.estimatedDurationMinutes;
+        } else {
+          followUpAfternoonRes += job.estimatedDurationMinutes;
+        }
+        const svcDur = job.estimatedDurationMinutes - (job.driveTimeMinutes || 0);
+        followUpCursor += svcDur + (job.driveTimeMinutes || 15);
+      }
+      const followUpRemaining = followUpAvail.totalMinutes - followUpReserved;
+      let followUpFits = followUpRemaining >= totalCostMinutes;
+      if (timePreference === "MORNING" && (followUpAvail.morningMinutes - followUpMorningRes) < totalCostMinutes) followUpFits = false;
+      if (timePreference === "AFTERNOON" && (followUpAvail.afternoonMinutes - followUpAfternoonRes) < totalCostMinutes) followUpFits = false;
+      if (!followUpFits) continue;
+
       const windows = computeAvailableWindows(queue, tech, totalCostMinutes);
       if (windows.length === 0) continue;
 
