@@ -344,56 +344,55 @@ export async function generateAvailableSlots(
 
       for (const window of windows) {
         const techArrivalMinutes = window.startMinutes;
-
-        // First appointment of the day: tech leaves from home at a known time,
-        // so give a tight 30-minute window (e.g. 8:00 AM – 8:30 AM).
-        // All other slots use Rule 1 (Diagnostic): 3-hour window.
         const isFirstOfDay = techArrivalMinutes === workStart && window.queuePosition === 0;
 
-        let windowStart: number;
-        let windowEnd: number;
+        // Build the list of customer-facing windows for this tech arrival.
+        // First-of-day gets TWO options: a tight 30-min window (tech leaves
+        // from home at a known time) AND the standard Rule 1 3-hour window.
+        // All other slots get just Rule 1.
+        const windowVariants: { wStart: number; wEnd: number }[] = [];
+
         if (isFirstOfDay) {
-          windowStart = workStart;
-          windowEnd = workStart + 30;
-        } else {
-          // Rule 1: start = tech arrival + 1 hour, end = start + 3 hours
-          windowStart = roundTo15(techArrivalMinutes + 60);
-          windowEnd = roundTo15(windowStart + 180);
+          // Tight first-of-day: e.g. 8:00 AM – 8:30 AM
+          windowVariants.push({ wStart: workStart, wEnd: workStart + 30 });
         }
+        // Rule 1 (Diagnostic): start = tech arrival + 1 hour, 3-hour window
+        const rule1Start = roundTo15(techArrivalMinutes + 60);
+        const rule1End = roundTo15(rule1Start + 180);
+        windowVariants.push({ wStart: rule1Start, wEnd: rule1End });
 
-        // Filter by time-of-day preference using customer's cutoff time
-        // Morning: entire window must end before cutoff (customer unavailable after cutoff)
-        // Afternoon: slot must start at or after cutoff (customer unavailable before cutoff)
-        if (timePreference === "MORNING" && windowEnd > cutoffMinutes) continue;
-        if (timePreference === "AFTERNOON" && windowStart < cutoffMinutes) continue;
+        for (const { wStart: windowStart, wEnd: windowEnd } of windowVariants) {
+          // Filter by time-of-day preference
+          if (timePreference === "MORNING" && windowEnd > cutoffMinutes) continue;
+          if (timePreference === "AFTERNOON" && windowStart < cutoffMinutes) continue;
 
-        // Build label
-        const dateLabel = formatDateLabel(date, now);
-        const hoursFromNow = ((date.getTime() + techArrivalMinutes * 60000) - now.getTime()) / 3600000;
+          // Build label
+          const dateLabel = formatDateLabel(date, now);
+          const hoursFromNow = ((date.getTime() + techArrivalMinutes * 60000) - now.getTime()) / 3600000;
 
-        let label: string;
-        if (hoursFromNow < 3 && hoursFromNow >= 0) {
-          // Too close — use broad label
-          const period = techArrivalMinutes < lunchStart ? "this morning" : "this afternoon";
-          label = `${dateLabel}, ${period} with ${tech.name}`;
-        } else {
-          label = `${dateLabel} ${formatTime(windowStart)} – ${formatTime(windowEnd)} with ${tech.name}`;
+          let label: string;
+          if (hoursFromNow < 3 && hoursFromNow >= 0) {
+            const period = techArrivalMinutes < lunchStart ? "this morning" : "this afternoon";
+            label = `${dateLabel}, ${period} with ${tech.name}`;
+          } else {
+            label = `${dateLabel} ${formatTime(windowStart)} – ${formatTime(windowEnd)} with ${tech.name}`;
+          }
+
+          slots.push({
+            index: slotIndex++,
+            technicianId: tech.id,
+            techName: tech.name,
+            date: date.toISOString().split("T")[0]!,
+            queuePosition: window.queuePosition,
+            windowStart: formatTime24(windowStart),
+            windowEnd: formatTime24(windowEnd),
+            label,
+            totalCostMinutes,
+            serviceTypeId,
+            serviceTypeName,
+            timePreference,
+          });
         }
-
-        slots.push({
-          index: slotIndex++,
-          technicianId: tech.id,
-          techName: tech.name,
-          date: date.toISOString().split("T")[0]!,
-          queuePosition: window.queuePosition,
-          windowStart: formatTime24(windowStart),
-          windowEnd: formatTime24(windowEnd),
-          label,
-          totalCostMinutes,
-          serviceTypeId,
-          serviceTypeName,
-          timePreference,
-        });
       }
     }
   }
@@ -668,58 +667,53 @@ export async function generateFollowUpSlots(
 
       for (const window of windows) {
         const rawStart = window.startMinutes;
-
-        // First appointment of the day: tight 30-minute window
         const isFirstOfDay = rawStart === followUpWorkStart && window.queuePosition === 0;
 
-        let windowStart: number;
-        let windowEnd: number;
+        // Build window variants — first-of-day gets tight + normal, others just normal
+        const followUpVariants: { wStart: number; wEnd: number }[] = [];
+
         if (isFirstOfDay) {
-          windowStart = followUpWorkStart;
-          windowEnd = followUpWorkStart + 30;
-        } else {
-          // Window start depends on which rule applies:
-          //   Rule 2A: 1 hour after tech arrives (at this job)
-          //   Rule 2B: tech's low estimate after arrival
-          //   Rule 3:  midpoint of low/high after arrival
-          let windowStartOffset: number;
-          if (rule === "2A") {
-            windowStartOffset = 60; // 1 hour
-          } else if (rule === "2B") {
-            windowStartOffset = estimatedLowMinutes;
-          } else {
-            windowStartOffset = midpointMinutes;
-          }
-
-          windowStart = roundTo15(rawStart + windowStartOffset);
-          windowEnd = roundTo15(windowStart + windowDurationMinutes);
+          followUpVariants.push({ wStart: followUpWorkStart, wEnd: followUpWorkStart + 30 });
         }
-
-        // Filter: must fit within the working day
-        const workEnd = parseHHMM(tech.workingHoursEnd) + (tech.overtimeCapMinutes ?? 0);
-        if (windowEnd > workEnd) continue;
-
-        // Filter by time preference
-        if (timePreference === "MORNING" && windowEnd > cutoffMinutes) continue;
-        if (timePreference === "AFTERNOON" && windowStart < cutoffMinutes) continue;
-
-        const dateLabel = formatDateLabel(date, now);
-        const label = `${dateLabel} ${formatTime(windowStart)} – ${formatTime(windowEnd)} with ${tech.name}`;
-
-        slots.push({
-          index: slotIndex++,
-          technicianId: tech.id,
-          techName: tech.name,
-          date: date.toISOString().split("T")[0]!,
-          queuePosition: window.queuePosition,
-          windowStart: formatTime24(windowStart),
-          windowEnd: formatTime24(windowEnd),
-          label,
-          totalCostMinutes,
-          serviceTypeId,
-          serviceTypeName,
-          timePreference,
+        // Normal rule-based window
+        let windowStartOffset: number;
+        if (rule === "2A") {
+          windowStartOffset = 60;
+        } else if (rule === "2B") {
+          windowStartOffset = estimatedLowMinutes;
+        } else {
+          windowStartOffset = midpointMinutes;
+        }
+        followUpVariants.push({
+          wStart: roundTo15(rawStart + windowStartOffset),
+          wEnd: roundTo15(roundTo15(rawStart + windowStartOffset) + windowDurationMinutes),
         });
+
+        const workEnd = parseHHMM(tech.workingHoursEnd) + (tech.overtimeCapMinutes ?? 0);
+
+        for (const { wStart: windowStart, wEnd: windowEnd } of followUpVariants) {
+          if (windowEnd > workEnd) continue;
+          if (timePreference === "MORNING" && windowEnd > cutoffMinutes) continue;
+          if (timePreference === "AFTERNOON" && windowStart < cutoffMinutes) continue;
+
+          const dateLabel = formatDateLabel(date, now);
+          const label = `${dateLabel} ${formatTime(windowStart)} – ${formatTime(windowEnd)} with ${tech.name}`;
+
+          slots.push({
+            index: slotIndex++,
+            technicianId: tech.id,
+            techName: tech.name,
+            date: date.toISOString().split("T")[0]!,
+            queuePosition: window.queuePosition,
+            windowStart: formatTime24(windowStart),
+            windowEnd: formatTime24(windowEnd),
+            label,
+            totalCostMinutes,
+            serviceTypeId,
+            serviceTypeName,
+            timePreference,
+          });
+        }
       }
     }
   }
