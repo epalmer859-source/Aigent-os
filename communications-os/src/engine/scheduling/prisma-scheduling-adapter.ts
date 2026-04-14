@@ -1274,6 +1274,7 @@ export function createEstimateTimeoutWorkerDb(prisma: PrismaClient): EstimateTim
 // ── PauseManualDb ─────────────────────────────────────────────────────────
 
 import type { PauseManualDb, SchedulingMode, SchedulingModeState, TechInfo } from "./pause-manual-controls";
+import type { CancellationDb, CustomerAppointment } from "./cancellation-pipeline";
 
 export function createPauseManualDb(prisma: PrismaClient): PauseManualDb {
   const db: PauseManualDb = {
@@ -1724,6 +1725,135 @@ export function createWindowRecalculatorDb(prisma: PrismaClient): WindowRecalcul
         where: { id: jobId },
         data: { window_start: windowStart, window_end: windowEnd },
       });
+    },
+  };
+}
+
+// ── CancellationDb ─────────────────────────────────────────────────────────
+
+export function createCancellationDb(prisma: PrismaClient): CancellationDb {
+  return {
+    async findCustomerIdsByPhone(businessId: string, phone: string): Promise<string[]> {
+      // Fuzzy match: strip non-digits from stored values and compare
+      // Use raw SQL for the digit-only comparison
+      const rows = await prisma.$queryRaw<{ customer_id: string }[]>`
+        SELECT DISTINCT customer_id
+        FROM customer_contacts
+        WHERE business_id = ${businessId}::uuid
+          AND contact_type = 'sms'
+          AND regexp_replace(contact_value, '[^0-9]', '', 'g') LIKE '%' || ${phone} || '%'
+      `;
+      return rows.map((r) => r.customer_id);
+    },
+
+    async findActiveAppointments(businessId: string, customerIds: string[]): Promise<CustomerAppointment[]> {
+      const rows = await prisma.appointments.findMany({
+        where: {
+          business_id: businessId,
+          customer_id: { in: customerIds },
+          status: { in: ["booked", "rescheduled"] },
+          appointment_date: { gte: dateToDateOnly(new Date()) },
+        },
+        include: {
+          scheduling_jobs: {
+            select: {
+              id: true,
+              window_start: true,
+              window_end: true,
+              technicians: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { appointment_date: "asc" },
+      });
+
+      return rows.map((r) => {
+        const ws = r.scheduling_jobs?.window_start;
+        const we = r.scheduling_jobs?.window_end;
+        return {
+          appointmentId: r.id,
+          schedulingJobId: r.scheduling_job_id,
+          techName: r.scheduling_jobs?.technicians?.name ?? r.technician_name ?? "Your technician",
+          date: r.appointment_date instanceof Date
+            ? r.appointment_date.toISOString().split("T")[0]!
+            : String(r.appointment_date).split("T")[0]!,
+          windowStart: ws ? formatTimeForCustomer(ws) : "TBD",
+          windowEnd: we ? formatTimeForCustomer(we) : "TBD",
+          serviceDescription: r.service_type ?? "Service appointment",
+          status: r.status,
+        };
+      });
+    },
+
+    async getSchedulingJobForAppointment(appointmentId: string) {
+      const appt = await prisma.appointments.findUnique({
+        where: { id: appointmentId },
+        select: { scheduling_job_id: true },
+      });
+      if (!appt?.scheduling_job_id) return null;
+
+      const job = await prisma.scheduling_jobs.findUnique({
+        where: { id: appt.scheduling_job_id },
+        select: {
+          id: true,
+          technician_id: true,
+          scheduled_date: true,
+          status: true,
+        },
+      });
+      if (!job) return null;
+
+      return {
+        jobId: job.id,
+        technicianId: job.technician_id,
+        scheduledDate: job.scheduled_date,
+        status: job.status as import("./scheduling-state-machine").SchedulingJobStatus,
+      };
+    },
+
+    async updateAppointmentCanceled(appointmentId: string, reason: string, canceledBy: string) {
+      await prisma.appointments.update({
+        where: { id: appointmentId },
+        data: {
+          status: "canceled",
+          canceled_at: new Date(),
+          cancellation_reason: reason,
+          canceled_by: canceledBy,
+        },
+      });
+    },
+
+    async transitionJobToCanceled(jobId: string) {
+      await prisma.scheduling_jobs.update({
+        where: { id: jobId },
+        data: {
+          status: "CANCELED",
+          updated_at: new Date(),
+        },
+      });
+      // Create scheduling event for audit
+      await prisma.scheduling_events.create({
+        data: {
+          scheduling_job_id: jobId,
+          event_type: "status_change",
+          old_value: "NOT_STARTED",
+          new_value: "CANCELED",
+          triggered_by: "SYSTEM",
+        },
+      });
+    },
+
+    async cancelPendingMessages(jobId: string): Promise<number> {
+      const result = await prisma.outbound_queue.updateMany({
+        where: {
+          scheduling_job_id: jobId,
+          status: "pending",
+        },
+        data: {
+          status: "canceled",
+        },
+      });
+      return result.count;
     },
   };
 }

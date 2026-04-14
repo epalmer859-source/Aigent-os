@@ -267,13 +267,14 @@ export const VALID_TRANSITIONS: Record<ConversationState, ConversationState[]> =
 
   // §8 booked: "reschedule_in_progress; tech_assigned; en_route;
   //   job_in_progress; job_completed through explicit operational correction only;
-  //   plus any valid override"
+  //   resolved (via customer cancellation); plus any valid override"
   booked: [
     "reschedule_in_progress",
     "tech_assigned",
     "en_route",
     "job_in_progress",
     "job_completed",
+    "resolved",
     ..._ALL_OVERRIDES,
   ],
 

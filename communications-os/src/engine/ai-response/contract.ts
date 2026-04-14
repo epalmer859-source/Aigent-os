@@ -79,6 +79,17 @@ export interface AIDecision {
    * should render an inline address form (Street / City / State / Zip).
    */
   show_address_form?: boolean;
+  /**
+   * True when the customer wants to cancel their appointment AND has confirmed
+   * ("are you sure?") AND provided a cancellation reason.
+   * The system will execute the cancellation only when both conditions are met.
+   */
+  cancelRequested?: boolean;
+  /**
+   * The reason the customer gave for canceling, collected after "are you sure?" confirmation.
+   * Required when cancelRequested is true.
+   */
+  cancellationReason?: string | null;
 }
 
 // ── Input / output shapes ─────────────────────────────────────

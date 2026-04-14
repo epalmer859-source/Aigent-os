@@ -32,6 +32,8 @@ model appointments {
   pending_deletion_at         DateTime?                     @db.Timestamptz(6)
   completed_at                DateTime?                     @db.Timestamptz(6)
   canceled_at                 DateTime?                     @db.Timestamptz(6)
+  cancellation_reason         String?
+  canceled_by                 String?
   created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
   updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
   businesses                  businesses                    @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)

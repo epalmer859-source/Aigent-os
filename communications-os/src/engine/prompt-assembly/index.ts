@@ -198,6 +198,36 @@ CRITICAL — DO NOT:
 If you do NOT set bookingConfirmed: true when the customer confirms, NO slots will be generated and the customer will be left waiting.
 If you do NOT set selectedSlot when the customer picks, the booking will NOT happen.`;
 
+const CANCELLATION_RULE = `-- APPOINTMENT CANCELLATION FLOW (mandatory 3-step process) --
+When a customer says they want to cancel (e.g. "cancel my appointment", "I need to cancel", "can't make it", "cancel"):
+
+STEP 1 — CONFIRM INTENT:
+The system will look up their appointment automatically. If found, respond with:
+"I found your appointment on [date] with [tech] for [service]. Are you sure you'd like to cancel?"
+If multiple appointments are found, list them and ask which one they want to cancel.
+If no appointment is found: "I wasn't able to find an upcoming appointment under that number. Can you double check the phone number, or would you like me to connect you with our team?"
+- Set "detected_intent": "cancel_appointment"
+- Do NOT set cancelRequested yet
+
+STEP 2 — COLLECT REASON:
+After the customer confirms (e.g. "yes", "yeah cancel it"):
+"Got it. Can I ask the reason for canceling? This helps us improve our service."
+- Do NOT set cancelRequested yet — wait for the reason
+
+STEP 3 — EXECUTE CANCELLATION:
+After the customer provides a reason:
+- Set "cancelRequested": true
+- Set "cancellationReason": "<the reason they gave>"
+- Set "proposed_state_change": "resolved"
+- Write a confirmation in response_text: "Your appointment has been canceled. If you need to reschedule in the future, just text us anytime."
+
+CRITICAL — DO NOT:
+- Cancel without asking "are you sure?" first
+- Cancel without collecting a cancellation reason
+- Mention any cancellation fees or penalties — there are none
+- Set cancelRequested: true before both confirmation AND reason are collected
+- Skip any of the three steps`;
+
 // ── Universal AI behavior rules ───────────────────────────────
 
 const UNIVERSAL_RULES = [
@@ -229,7 +259,7 @@ const STATE_INSTRUCTIONS: Record<string, string> = {
   lead_followup_active:
     "This is a follow-up conversation. Check in warmly, reference prior context if available, and offer to help move forward.",
   booked:
-    "The appointment is booked. Confirm the date, time, and address. Provide the business phone for day-of questions.",
+    "The appointment is booked. Confirm the date, time, and address. Provide the business phone for day-of questions. If the customer wants to cancel, follow the APPOINTMENT CANCELLATION FLOW — confirm intent, collect reason, then execute.",
   job_completed:
     "The job is complete. Send a closeout message: thank the customer for their business, ask about their satisfaction, mention your review link, and provide the business phone for any future questions.",
 };
@@ -261,7 +291,9 @@ const AI_DECISION_SCHEMA = `
   "collected_phone": "string | null — the customer's phone number if provided this turn, otherwise null",
   "availability_preference": "string | null — only set if the customer asks to filter slots after seeing the initial list (e.g. 'Mornings only', 'Afternoons only'), otherwise null",
   "collected_service_address": "string | null — the full service address if the customer provided it this turn (e.g. '123 Main St, Springfield, IL 62704'), otherwise null",
-  "show_address_form": "boolean — set to true ONLY when you are asking the customer to provide their address. The web chat will display a structured form. Set to false at all other times."
+  "show_address_form": "boolean — set to true ONLY when you are asking the customer to provide their address. The web chat will display a structured form. Set to false at all other times.",
+  "cancelRequested": "boolean — set to true ONLY after the customer has (1) expressed intent to cancel, (2) confirmed 'yes' to the 'are you sure?' prompt, AND (3) provided a cancellation reason. All three conditions must be met. false at all other times.",
+  "cancellationReason": "string | null — the reason the customer gave for canceling. Only set when cancelRequested is true. null at all other times."
 }`;
 
 // ── Layer builders ────────────────────────────────────────────
@@ -371,6 +403,7 @@ function _buildLayer3(
     ...UNIVERSAL_RULES.map((r) => `• ${r}`),
     `• ${identityRule}`,
     `\n${AUTOMATIC_SCHEDULING_RULE}`,
+    `\n${CANCELLATION_RULE}`,
     "\n-- Industry Capabilities --",
     ...capabilities.map((c) => `• ${c}`),
     "\n-- Industry Prohibitions --",

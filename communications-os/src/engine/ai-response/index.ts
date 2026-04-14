@@ -1046,11 +1046,66 @@ async function _generateAIResponseFromDb(
     }
   }
 
+  // ── Cancellation Pipeline ──────────────────────────────────────────────────
+  // When cancelRequested=true and cancellationReason is provided, execute the
+  // cancellation: look up the appointment via conversation, cancel it, and
+  // transition conversation to resolved.
+  let cancellationResponseOverride: string | null = null;
+
+  if (effectiveDecision.cancelRequested === true && effectiveDecision.cancellationReason) {
+    try {
+      const { findCustomerAppointments, cancelAppointment } = await import("~/engine/scheduling/cancellation-pipeline");
+      const { createCancellationDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+
+      const cancellationDb = createCancellationDb(db);
+
+      // Find the appointment linked to this conversation
+      const appointment = await db.appointments.findFirst({
+        where: {
+          conversation_id: conversationId,
+          status: { in: ["booked", "rescheduled"] },
+        },
+        select: { id: true },
+        orderBy: { appointment_date: "desc" },
+      });
+
+      if (appointment) {
+        const result = await cancelAppointment(
+          appointment.id,
+          effectiveDecision.cancellationReason,
+          "customer",
+          cancellationDb,
+        );
+
+        if (result.success) {
+          console.log("[ai-response] appointment canceled successfully:", appointment.id);
+          // Force state to resolved
+          effectiveDecision.proposed_state_change = "resolved";
+          effectiveDecision.message_purpose = "cancellation_confirmation";
+        } else {
+          console.warn("[ai-response] cancellation failed:", result.reason);
+          cancellationResponseOverride = "I wasn't able to cancel that appointment right now — it may already be in progress. Let me connect you with our team for help.";
+          effectiveDecision.handoff_required = true;
+          effectiveDecision.handoff_reason = `Cancellation failed: ${result.reason}`;
+        }
+      } else {
+        console.warn("[ai-response] no active appointment found for conversation:", conversationId);
+        cancellationResponseOverride = "I wasn't able to find an active appointment for this conversation. Can you double check your details, or would you like me to connect you with our team?";
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[ai-response] cancellation pipeline error:", errMsg);
+      cancellationResponseOverride = "I'm having trouble processing your cancellation right now. Let me connect you with our team to help.";
+      effectiveDecision.handoff_required = true;
+      effectiveDecision.handoff_reason = `Cancellation error: ${errMsg}`;
+    }
+  }
+
   // Validate.
   const validation = validateAIDecision(effectiveDecision, conversationState);
   console.log("[ai-response] validation result:", { confidencePassed: validation.confidencePassed, stateChangeAllowed: validation.stateChangeAllowed, handoffValid: validation.handoffValid, errors: validation.errors, actualConfidence: effectiveDecision.confidence, threshold: CONFIDENCE_THRESHOLD });
 
-  let responseText = bookingResponseOverride ?? effectiveDecision.response_text;
+  let responseText = cancellationResponseOverride ?? bookingResponseOverride ?? effectiveDecision.response_text;
   if (!validation.confidencePassed && !bookingResponseOverride) {
     // Check if using the generic fallback would create a loop.
     // If the AI produced a substantive response, prefer it over the generic fallback
