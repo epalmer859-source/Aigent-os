@@ -90,6 +90,12 @@ export interface AIDecision {
    * Required when cancelRequested is true.
    */
   cancellationReason?: string | null;
+  /**
+   * True when the customer wants to reschedule their appointment AND has confirmed
+   * which appointment to reschedule. The system will present replacement slots and
+   * handle the swap when the customer picks one.
+   */
+  rescheduleRequested?: boolean;
 }
 
 // ── Input / output shapes ─────────────────────────────────────

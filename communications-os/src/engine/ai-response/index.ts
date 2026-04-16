@@ -1192,12 +1192,313 @@ async function _generateAIResponseFromDb(
     }
   }
 
+  // ── Reschedule Pipeline ─────────────────────────────────────────────────────
+  // Reuses cancellation lookup for appointment identification and booking pipeline
+  // for replacement slot generation / booking. Three phases:
+  //   Phase 1: Lookup — detect reschedule intent, find appointments by phone
+  //   Phase 2: Slot generation — after customer confirms which appointment, show replacement slots
+  //   Phase 3: Execution — customer picks slot → book replacement, then mark original rescheduled
+  let rescheduleResponseOverride: string | null = null;
+
+  const rescheduleIntent = (effectiveDecision.detected_intent ?? "").toLowerCase() === "reschedule_appointment";
+  const rescheduleConfirmed = effectiveDecision.rescheduleRequested === true;
+  const rescheduleSlotPicked = rescheduleConfirmed && selectedSlotIndex !== null && selectedSlotIndex > 0;
+
+  if (rescheduleIntent && !rescheduleConfirmed) {
+    // ── Phase 1: Appointment lookup (reuse cancellation lookup) ──────────────
+    try {
+      const phoneThisTurn = effectiveDecision.collected_phone
+        ?? (effectiveDecision as unknown as Record<string, unknown>)["collectedPhone"] as string | null | undefined;
+      let phone = phoneThisTurn ?? null;
+      const phoneDigits = phone ? phone.replace(/\D/g, "") : "";
+      if (!phone || phoneDigits.length < 10) phone = null;
+
+      if (phone) {
+        const { findCustomerAppointments } = await import("~/engine/scheduling/cancellation-pipeline");
+        const { createCancellationDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+        const cancellationDb = createCancellationDb(db);
+
+        const appointments = await findCustomerAppointments(businessId, phone, cancellationDb);
+        console.log("[ai-response] reschedule lookup — found", appointments.length, "appointments for phone:", phone);
+
+        if (appointments.length === 0) {
+          rescheduleResponseOverride = "I wasn't able to find an upcoming appointment under that number. Can you double check the phone number, or would you like me to connect you with our team?";
+          effectiveDecision.proposed_state_change = null;
+        } else if (appointments.length === 1) {
+          const appt = appointments[0]!;
+          rescheduleResponseOverride = `I found your appointment on ${appt.date} with ${appt.techName} for ${appt.serviceDescription}. Would you like to reschedule this one?`;
+          effectiveDecision.proposed_state_change = null;
+
+          await db.conversations.update({
+            where: { id: conversationId },
+            data: { pending_cancel_appointments: appointments as unknown as never },
+          });
+        } else {
+          const lines = appointments.map((a, i) =>
+            `${i + 1}. ${a.date} with ${a.techName} — ${a.serviceDescription}`,
+          );
+          rescheduleResponseOverride = `I found ${appointments.length} upcoming appointments:\n\n${lines.join("\n")}\n\nWhich one would you like to reschedule?`;
+          effectiveDecision.proposed_state_change = null;
+
+          await db.conversations.update({
+            where: { id: conversationId },
+            data: { pending_cancel_appointments: appointments as unknown as never },
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[ai-response] reschedule lookup error:", err instanceof Error ? err.message : String(err));
+    }
+  } else if (rescheduleConfirmed && !rescheduleSlotPicked) {
+    // ── Phase 2: Generate replacement slots ─────────────────────────────────
+    try {
+      const { generateAvailableSlots } = await import("~/engine/scheduling/ai-booking-pipeline");
+
+      // Load the original appointment to check for same-slot selection later
+      const convReschedule = await db.conversations.findUnique({
+        where: { id: conversationId },
+      }) as unknown as { pending_cancel_appointments?: unknown } | null;
+      const storedAppts = Array.isArray(convReschedule?.pending_cancel_appointments)
+        ? convReschedule.pending_cancel_appointments as Array<{ appointmentId: string }>
+        : [];
+
+      if (storedAppts.length === 0) {
+        rescheduleResponseOverride = "I couldn't find the appointment you want to reschedule. Could you start again by telling me you'd like to reschedule?";
+        effectiveDecision.proposed_state_change = null;
+      } else {
+        const serviceDescription = effectiveDecision.detected_intent ?? "";
+        const availabilityPref = effectiveDecision.availability_preference ?? null;
+        const availabilityCutoff = effectiveDecision.availability_cutoff_time ?? null;
+
+        const slotDeps = {
+          async getTechCandidates(bizId: string) {
+            const techs = await db.technicians.findMany({
+              where: { business_id: bizId, is_active: true },
+              include: { skill_tags: true },
+            });
+            return techs.map((t) => ({
+              id: t.id, businessId: t.business_id, name: t.name,
+              homeBaseLat: t.home_base_lat, homeBaseLng: t.home_base_lng,
+              skillTags: t.skill_tags.map((s: { service_type_id: string }) => s.service_type_id),
+              workingHoursStart: t.working_hours_start, workingHoursEnd: t.working_hours_end,
+              lunchStart: t.lunch_start, lunchEnd: t.lunch_end,
+              overtimeCapMinutes: t.overtime_cap_minutes, isActive: t.is_active,
+            }));
+          },
+          async getDiagnosticMinutes(bizId: string) {
+            const { getDiagnosticTime } = await import("~/engine/scheduling/service-estimates");
+            return getDiagnosticTime(db as any, bizId);
+          },
+          async getDiagnosticServiceTypeId(bizId: string) {
+            const row = await db.service_types.findFirst({ where: { business_id: bizId }, select: { id: true } });
+            if (!row) throw new Error(`No service types for business ${bizId}`);
+            return row.id;
+          },
+          async getQueueForTechDate(technicianId: string, date: Date) {
+            const { createBookingOrchestratorDb: createBODb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+            return createBODb(db).getQueueForTechDate(technicianId, date);
+          },
+        };
+
+        const slotResult = await generateAvailableSlots({
+          businessId,
+          serviceDescription,
+          availabilityPreference: availabilityPref,
+          availabilityCutoffTime: availabilityCutoff,
+        }, slotDeps);
+
+        if (slotResult.success) {
+          await db.conversations.update({
+            where: { id: conversationId },
+            data: { pending_booking_slots: slotResult.slots as unknown as never },
+          });
+          const slotLines = slotResult.slots.map((s) => `${s.index}. ${s.label}`);
+          rescheduleResponseOverride = `Here are the available replacement times:\n\n${slotLines.join("\n")}\n\nWhich one works for you? Or say "never mind" to keep your current appointment.`;
+        } else {
+          rescheduleResponseOverride = "I wasn't able to find available replacement times right now. Your current appointment is still in place. Would you like me to connect you with our team?";
+        }
+        effectiveDecision.proposed_state_change = null;
+      }
+    } catch (err) {
+      console.error("[ai-response] reschedule slot generation error:", err instanceof Error ? err.message : String(err));
+      rescheduleResponseOverride = "I'm having trouble checking availability right now. Your current appointment is still in place.";
+      effectiveDecision.proposed_state_change = null;
+    }
+  } else if (rescheduleSlotPicked) {
+    // ── Phase 3: Book replacement, then mark original rescheduled ────────────
+    try {
+      const { bookSelectedSlot } = await import("~/engine/scheduling/ai-booking-pipeline");
+      const { createBookingOrchestratorDb, createCancellationDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+      const { randomUUID } = await import("crypto");
+
+      // Load stored slots
+      const convSlots = await db.conversations.findUnique({
+        where: { id: conversationId },
+      }) as unknown as { pending_booking_slots?: unknown } | null;
+      const storedSlots = (Array.isArray(convSlots?.pending_booking_slots) ? convSlots.pending_booking_slots : []) as Array<Record<string, unknown>>;
+
+      // Load original appointment
+      const convReschedule = await db.conversations.findUnique({
+        where: { id: conversationId },
+      }) as unknown as { pending_cancel_appointments?: unknown } | null;
+      const storedAppts = Array.isArray(convReschedule?.pending_cancel_appointments)
+        ? convReschedule.pending_cancel_appointments as Array<{ appointmentId: string; schedulingJobId: string | null; date: string; windowStart: string; windowEnd: string; techName: string }>
+        : [];
+
+      if (storedSlots.length === 0 || storedAppts.length === 0) {
+        rescheduleResponseOverride = "I lost track of the reschedule details. Your current appointment is still in place. Could you start over?";
+        effectiveDecision.proposed_state_change = null;
+      } else {
+        const pickedSlot = storedSlots.find((s) => s.index === selectedSlotIndex) as unknown as import("~/engine/scheduling/ai-booking-pipeline").AvailableSlot | undefined;
+        const originalAppt = storedAppts[0]!;
+
+        if (!pickedSlot) {
+          rescheduleResponseOverride = `That option isn't available. Please pick a number between 1 and ${storedSlots.length}, or say "never mind" to keep your current appointment.`;
+          effectiveDecision.proposed_state_change = null;
+        } else {
+          // Check same-slot: if picked slot matches original appointment date+window, no-op
+          const sameSlot = pickedSlot.date === originalAppt.date
+            && pickedSlot.windowStart === originalAppt.windowStart
+            && pickedSlot.windowEnd === originalAppt.windowEnd;
+
+          if (sameSlot) {
+            rescheduleResponseOverride = "That's the same time as your current appointment! Your appointment is unchanged. Is there anything else I can help with?";
+            effectiveDecision.proposed_state_change = null;
+          } else {
+            // Look up customer info
+            let customerName = "";
+            const convTitle = await db.conversations.findUnique({
+              where: { id: conversationId },
+              select: { contact_display_name: true, collected_service_address: true },
+            });
+            customerName = convTitle?.contact_display_name ?? "Customer";
+            const addressText = convTitle?.collected_service_address ?? "";
+            const serviceDescription = effectiveDecision.detected_intent ?? "";
+
+            const bookingDb = createBookingOrchestratorDb(db);
+            const result = await bookSelectedSlot({
+              businessId,
+              customerId,
+              customerName,
+              addressText,
+              serviceDescription,
+              slot: pickedSlot,
+            }, {
+              bookingDb,
+              generateId: () => randomUUID(),
+              async getTechCandidate(technicianId: string) {
+                const t = await db.technicians.findUnique({
+                  where: { id: technicianId },
+                  include: { skill_tags: true },
+                });
+                if (!t) return null;
+                return {
+                  id: t.id, businessId: t.business_id, name: t.name,
+                  homeBaseLat: t.home_base_lat, homeBaseLng: t.home_base_lng,
+                  skillTags: t.skill_tags.map((s: { service_type_id: string }) => s.service_type_id),
+                  workingHoursStart: t.working_hours_start, workingHoursEnd: t.working_hours_end,
+                  lunchStart: t.lunch_start, lunchEnd: t.lunch_end,
+                  overtimeCapMinutes: t.overtime_cap_minutes, isActive: t.is_active,
+                };
+              },
+            });
+
+            if (result.booked) {
+              // ── Replacement booked successfully — now mark original rescheduled ──
+              console.log("[ai-response] reschedule — replacement booked:", result.jobId);
+
+              // Mark original appointment as rescheduled
+              await db.appointments.update({
+                where: { id: originalAppt.appointmentId },
+                data: { status: "rescheduled" as any },
+              });
+
+              // Cancel original scheduling job if it exists
+              if (originalAppt.schedulingJobId) {
+                const cancellationDb = createCancellationDb(db);
+                await cancellationDb.transitionJobToCanceled(originalAppt.schedulingJobId);
+                await cancellationDb.cancelPendingMessages(originalAppt.schedulingJobId);
+
+                // Trigger recalculation for the original tech/date
+                try {
+                  const { recalculateDownstreamWindows } = await import("~/engine/scheduling/window-recalculator");
+                  const { createWindowRecalculatorDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+                  const recalcDb = createWindowRecalculatorDb(db);
+                  const origDate = new Date(originalAppt.date + "T00:00:00");
+                  const origJob = await db.scheduling_jobs.findUnique({
+                    where: { id: originalAppt.schedulingJobId },
+                    select: { technician_id: true },
+                  });
+                  if (origJob) {
+                    await recalculateDownstreamWindows(
+                      origJob.technician_id, originalAppt.schedulingJobId,
+                      new Date(), origDate, recalcDb,
+                    );
+                  }
+                } catch (recalcErr) {
+                  console.warn("[ai-response] reschedule — original recalc failed (non-critical):", recalcErr);
+                }
+              }
+
+              // Trigger recalculation for the new tech/date
+              try {
+                const { recalculateDownstreamWindows } = await import("~/engine/scheduling/window-recalculator");
+                const { createWindowRecalculatorDb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
+                const recalcDb = createWindowRecalculatorDb(db);
+                const newDate = new Date(pickedSlot.date + "T00:00:00");
+                await recalculateDownstreamWindows(
+                  pickedSlot.technicianId, result.jobId,
+                  new Date(), newDate, recalcDb,
+                );
+              } catch (recalcErr) {
+                console.warn("[ai-response] reschedule — new recalc failed (non-critical):", recalcErr);
+              }
+
+              // Format confirmation
+              const schedDate = result.scheduledDate;
+              const todayMid = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+              const schedMid = new Date(schedDate.getFullYear(), schedDate.getMonth(), schedDate.getDate());
+              const dayDiff = Math.round((schedMid.getTime() - todayMid.getTime()) / 86400000);
+              let dateStr: string;
+              if (dayDiff === 0) dateStr = "today";
+              else if (dayDiff === 1) dateStr = "tomorrow";
+              else dateStr = schedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+
+              rescheduleResponseOverride = `Your appointment has been rescheduled! ${result.techName} will be heading your way ${dateStr}. We'll send you a heads-up when they're on the way.`;
+              effectiveDecision.proposed_state_change = "booked";
+              effectiveDecision.message_purpose = "reschedule_confirmation";
+
+              // Clear stored data
+              await db.conversations.update({
+                where: { id: conversationId },
+                data: {
+                  pending_cancel_appointments: null as never,
+                  pending_booking_slots: null as never,
+                },
+              });
+            } else {
+              // Replacement booking FAILED — original appointment remains intact
+              console.warn("[ai-response] reschedule — replacement booking failed:", result.reason);
+              rescheduleResponseOverride = "I wasn't able to book that replacement time. Your current appointment is still in place. Would you like to try a different time, or keep your current appointment?";
+              effectiveDecision.proposed_state_change = null;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[ai-response] reschedule execution error:", errMsg);
+      rescheduleResponseOverride = "I'm having trouble processing your reschedule right now. Your current appointment is still in place.";
+      effectiveDecision.proposed_state_change = null;
+    }
+  }
+
   // Validate.
   const validation = validateAIDecision(effectiveDecision, conversationState);
   console.log("[ai-response] validation result:", { confidencePassed: validation.confidencePassed, stateChangeAllowed: validation.stateChangeAllowed, handoffValid: validation.handoffValid, errors: validation.errors, actualConfidence: effectiveDecision.confidence, threshold: CONFIDENCE_THRESHOLD });
 
-  let responseText = cancellationResponseOverride ?? bookingResponseOverride ?? effectiveDecision.response_text;
-  if (!validation.confidencePassed && !bookingResponseOverride) {
+  let responseText = rescheduleResponseOverride ?? cancellationResponseOverride ?? bookingResponseOverride ?? effectiveDecision.response_text;
+  if (!validation.confidencePassed && !bookingResponseOverride && !rescheduleResponseOverride) {
     // Check if using the generic fallback would create a loop.
     // If the AI produced a substantive response, prefer it over the generic fallback
     // to avoid poisoning conversation history with dead-end messages.

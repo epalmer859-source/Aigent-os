@@ -228,6 +228,40 @@ CRITICAL — DO NOT:
 - Set cancelRequested: true before both confirmation AND reason are collected
 - Skip any of the three steps`;
 
+const RESCHEDULE_RULE = `-- APPOINTMENT RESCHEDULE FLOW (mandatory) --
+When a customer says they want to reschedule (e.g. "reschedule my appointment", "change my appointment time", "move my appointment", "can I get a different time"):
+
+STEP 1 — IDENTIFY APPOINTMENT:
+- Set "detected_intent": "reschedule_appointment"
+- If you do not already have the customer's phone number, ask for it (same as cancellation lookup)
+- The system will look up their upcoming appointment(s) automatically by phone number
+- If one appointment is found, present it and ask: "I found your appointment on [date] with [tech] for [service]. Would you like to reschedule this one?"
+- If multiple appointments are found, list them and ask which one to reschedule
+- If no appointment is found: "I wasn't able to find an upcoming appointment under that number."
+- Do NOT set rescheduleRequested yet
+
+STEP 2 — CONFIRM & SHOW REPLACEMENT SLOTS:
+After the customer confirms which appointment to reschedule:
+- Set "rescheduleRequested": true
+- Set "detected_intent": "reschedule_appointment"
+- The system will generate replacement slots (same as booking flow) and present them
+- Do NOT ask for a reschedule reason
+
+STEP 3 — BOOK REPLACEMENT:
+When the customer picks a replacement slot:
+- Set "selectedSlot" to the slot number they picked
+- Set "rescheduleRequested": true
+- Set "bookingConfirmed": true
+- The system will create the new appointment first, then mark the original as rescheduled
+- If the customer says "never mind" or "keep the original" at any point, abort with no changes
+
+CRITICAL — DO NOT:
+- Modify the original appointment before the replacement is successfully booked
+- Ask the customer for a reschedule reason
+- Skip confirming which appointment is being changed
+- Present slots before the customer confirms which appointment to reschedule
+- Set rescheduleRequested before the customer confirms the appointment to change`;
+
 // ── Universal AI behavior rules ───────────────────────────────
 
 const UNIVERSAL_RULES = [
@@ -259,7 +293,7 @@ const STATE_INSTRUCTIONS: Record<string, string> = {
   lead_followup_active:
     "This is a follow-up conversation. Check in warmly, reference prior context if available, and offer to help move forward.",
   booked:
-    "The appointment is booked. Confirm the date, time, and address. Provide the business phone for day-of questions. If the customer wants to cancel, follow the APPOINTMENT CANCELLATION FLOW — confirm intent, collect reason, then execute.",
+    "The appointment is booked. Confirm the date, time, and address. Provide the business phone for day-of questions. If the customer wants to cancel, follow the APPOINTMENT CANCELLATION FLOW — confirm intent, collect reason, then execute. If the customer wants to reschedule, follow the APPOINTMENT RESCHEDULE FLOW — identify the appointment, confirm it, then present replacement slots.",
   job_completed:
     "The job is complete. Send a closeout message: thank the customer for their business, ask about their satisfaction, mention your review link, and provide the business phone for any future questions.",
 };
@@ -293,7 +327,8 @@ const AI_DECISION_SCHEMA = `
   "collected_service_address": "string | null — the full service address if the customer provided it this turn (e.g. '123 Main St, Springfield, IL 62704'), otherwise null",
   "show_address_form": "boolean — set to true ONLY when you are asking the customer to provide their address. The web chat will display a structured form. Set to false at all other times.",
   "cancelRequested": "boolean — set to true ONLY after the customer has (1) expressed intent to cancel, (2) confirmed 'yes' to the 'are you sure?' prompt, AND (3) provided a cancellation reason. All three conditions must be met. false at all other times.",
-  "cancellationReason": "string | null — the reason the customer gave for canceling. Only set when cancelRequested is true. null at all other times."
+  "cancellationReason": "string | null — the reason the customer gave for canceling. Only set when cancelRequested is true. null at all other times.",
+  "rescheduleRequested": "boolean — set to true ONLY after the customer has confirmed which appointment they want to reschedule. false at all other times."
 }`;
 
 // ── Layer builders ────────────────────────────────────────────
@@ -404,6 +439,7 @@ function _buildLayer3(
     `• ${identityRule}`,
     `\n${AUTOMATIC_SCHEDULING_RULE}`,
     `\n${CANCELLATION_RULE}`,
+    `\n${RESCHEDULE_RULE}`,
     "\n-- Industry Capabilities --",
     ...capabilities.map((c) => `• ${c}`),
     "\n-- Industry Prohibitions --",
