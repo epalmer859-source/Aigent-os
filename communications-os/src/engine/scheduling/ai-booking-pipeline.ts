@@ -363,8 +363,6 @@ export async function generateAvailableSlots(
       }
       console.log(`[slot-gen] ${tech.name} on ${dateStr}: ${windows.length} windows found at minutes [${windows.map(w => w.startMinutes).join(", ")}]`);
 
-      const lunchStart = parseHHMM(tech.lunchStart);
-
       const workStart = parseHHMM(tech.workingHoursStart);
 
       for (const window of windows) {
@@ -393,15 +391,7 @@ export async function generateAvailableSlots(
 
           // Build label
           const dateLabel = formatDateLabel(date, now);
-          const hoursFromNow = ((date.getTime() + techArrivalMinutes * 60000) - now.getTime()) / 3600000;
-
-          let label: string;
-          if (hoursFromNow < 3 && hoursFromNow >= 0) {
-            const period = techArrivalMinutes < lunchStart ? "this morning" : "this afternoon";
-            label = `${dateLabel}, ${period} with ${tech.name}`;
-          } else {
-            label = `${dateLabel} ${formatTime(windowStart)} – ${formatTime(windowEnd)} with ${tech.name}`;
-          }
+          const label = `${dateLabel} ${formatTime(windowStart)} – ${formatTime(windowEnd)} with ${tech.name}`;
 
           slots.push({
             index: slotIndex++,
