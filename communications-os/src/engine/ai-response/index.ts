@@ -152,43 +152,36 @@ function _parseDecision(raw: string): AIDecision | null {
   let text = raw.trim();
   // Strip markdown fences e.g. ```json ... ```
   text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
+  let parsed: AIDecision | null = null;
+
   // First attempt: parse as-is
   try {
-    return JSON.parse(text) as AIDecision;
+    parsed = JSON.parse(text) as AIDecision;
   } catch {
     // Second attempt: extract the outermost JSON object by finding first { and last }
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");
     if (start !== -1 && end > start) {
       try {
-        return JSON.parse(text.slice(start, end + 1)) as AIDecision;
+        parsed = JSON.parse(text.slice(start, end + 1)) as AIDecision;
       } catch {
-        // JSON structure found but malformed — fall through to plain text recovery
+        // JSON structure found but malformed — fall through
       }
     }
-
-    // Third attempt: plain text recovery.
-    // Claude returned a natural language response instead of JSON.
-    // Synthesize a valid decision object so the customer still gets
-    // the AI's actual message instead of a generic fallback.
-    if (text.length > 5 && !text.startsWith("{")) {
-      console.warn("[ai-response] PLAIN TEXT RECOVERY — Claude returned text instead of JSON, synthesizing decision from:", text.slice(0, 150));
-      return {
-        response_text: text,
-        proposed_state_change: null,
-        handoff_required: false,
-        handoff_reason: null,
-        message_purpose: "general_reply",
-        requested_data_fields: [],
-        detected_intent: "general_inquiry",
-        confidence: 0.7,
-        rule_flags: [],
-        is_first_message: false,
-      };
-    }
-
-    return null;
   }
+
+  // Safety gate: even if JSON parsed, reject if response_text is missing/invalid.
+  // This prevents model deliberation or concatenated output from leaking to customers.
+  if (parsed !== null) {
+    const rt = parsed.response_text ?? parsed.responseText;
+    if (typeof rt !== "string" || rt.length === 0) {
+      console.warn("[ai-response] parsed JSON but response_text missing/empty — rejecting");
+      return null;
+    }
+  }
+
+  return parsed;
 }
 
 // ── validateAIDecision — pure function ────────────────────────

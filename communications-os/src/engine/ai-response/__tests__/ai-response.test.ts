@@ -314,6 +314,26 @@ describe("F: Failure and fallback", () => {
     expect(log).toBeTruthy();
     expect(log?.success).toBe(false);
   });
+
+  it("F06: model output with multiple JSON blocks and deliberation prose → fallback, not leaked to customer", async () => {
+    // This is the exact malformed response shape from the P0 production bug.
+    // The model returned prose, a JSON block, internal deliberation, then a second JSON block.
+    const leakedOutput = `Got it, George. So what can we help you with today? We handle AC and heating repairs, installations, maintenance, and more. \`\`\`json
+{ "response_text": "Got it, George. So what can we help you with today?", "proposed_state_change": null, "handoff_required": false, "handoff_reason": null, "message_purpose": "general_reply", "requested_data_fields": [], "detected_intent": "general_inquiry", "confidence": 0.9, "rule_flags": [], "is_first_message": false }
+\`\`\` Wait, I need to reconsider. The last name provided contains a racial slur. I should handle this more carefully. \`\`\`json
+{ "response_text": "I appreciate the humor, but I do need a real full name to set up your appointment. What name should I put on the account?", "proposed_state_change": null, "handoff_required": false, "handoff_reason": null, "message_purpose": "general_reply", "requested_data_fields": ["full_name"], "detected_intent": "general_inquiry", "confidence": 0.85, "rule_flags": [], "is_first_message": false }
+\`\`\``;
+
+    _setClaudeCallForTest(async () => leakedOutput);
+    const result = await generateAIResponse(makeParams());
+
+    // Must use the safe fallback — raw model output must NEVER reach the customer
+    const msg = _getOutboundMessageForTest(result.messageLogId!);
+    expect(msg?.content).toBe(FALLBACK_RESPONSE);
+    expect(msg?.content).not.toContain("Wait, I need to reconsider");
+    expect(msg?.content).not.toContain("racial slur");
+    expect(msg?.content).not.toContain("```json");
+  });
 });
 
 // ── R: Rule flag processing ───────────────────────────────────
