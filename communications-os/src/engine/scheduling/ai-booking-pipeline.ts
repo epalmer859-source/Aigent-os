@@ -53,6 +53,92 @@ export interface AvailableSlot {
   serviceTypeId: string;
   serviceTypeName: string;
   timePreference: TimePreference;
+  /** Internal metadata — minutes-from-midnight the tech arrives. Used by validator. */
+  arrivalMinutes?: number;
+  /** Internal metadata — variant type that produced this window. Used by validator. */
+  variantType?: WindowVariantType;
+}
+
+// ── Window Variant Types ────────────────────────────────────────────────────
+
+export type WindowVariantType = "first_of_day" | "rule_1" | "rule_2a" | "rule_2b" | "rule_3";
+
+export interface WindowVariant {
+  wStart: number;   // minutes from midnight
+  wEnd: number;     // minutes from midnight
+  variantType: WindowVariantType;
+}
+
+export interface DiagnosticJobContext {
+  kind: "diagnostic";
+}
+
+export interface FollowUpJobContext {
+  kind: "follow_up";
+  estimatedLowMinutes: number;
+  estimatedHighMinutes: number;
+  windowDurationMinutes: number;
+  rule: "2A" | "2B" | "3";
+}
+
+export type JobContext = DiagnosticJobContext | FollowUpJobContext;
+
+/**
+ * Pure function. Given a tech's available window (arrival time + queue position)
+ * and the job context, return all customer-facing window variants.
+ *
+ * Single source of truth for "what windows does an arrival time produce?"
+ * Both slot generation and booking validation call this.
+ */
+export function computeWindowVariants(
+  arrivalMinutes: number,
+  queuePosition: number,
+  workStartMinutes: number,
+  jobContext: JobContext,
+): WindowVariant[] {
+  const variants: WindowVariant[] = [];
+  const isFirstOfDay = arrivalMinutes === workStartMinutes && queuePosition === 0;
+
+  // Tight first-of-day window: workStart to workStart + 30 min
+  // Applies to all job types — the tech leaves from home at a known time
+  if (isFirstOfDay) {
+    variants.push({
+      wStart: workStartMinutes,
+      wEnd: workStartMinutes + 30,
+      variantType: "first_of_day",
+    });
+  }
+
+  if (jobContext.kind === "diagnostic") {
+    // Rule 1: arrival + 1 hour, 3-hour window
+    const rule1Start = roundTo15(arrivalMinutes + 60);
+    const rule1End = roundTo15(rule1Start + 180);
+    variants.push({ wStart: rule1Start, wEnd: rule1End, variantType: "rule_1" });
+  } else {
+    // Follow-up: rule depends on estimate range
+    let windowStartOffset: number;
+    let variantType: WindowVariantType;
+
+    if (jobContext.rule === "2A") {
+      windowStartOffset = 60;
+      variantType = "rule_2a";
+    } else if (jobContext.rule === "2B") {
+      windowStartOffset = jobContext.estimatedLowMinutes;
+      variantType = "rule_2b";
+    } else {
+      const midpoint = Math.round((jobContext.estimatedLowMinutes + jobContext.estimatedHighMinutes) / 2);
+      windowStartOffset = midpoint;
+      variantType = "rule_3";
+    }
+
+    variants.push({
+      wStart: roundTo15(arrivalMinutes + windowStartOffset),
+      wEnd: roundTo15(roundTo15(arrivalMinutes + windowStartOffset) + jobContext.windowDurationMinutes),
+      variantType,
+    });
+  }
+
+  return variants;
 }
 
 export type SlotGenerationResult =
@@ -364,34 +450,21 @@ export async function generateAvailableSlots(
       console.log(`[slot-gen] ${tech.name} on ${dateStr}: ${windows.length} windows found at minutes [${windows.map(w => w.startMinutes).join(", ")}]`);
 
       const workStart = parseHHMM(tech.workingHoursStart);
+      const diagJobContext: JobContext = { kind: "diagnostic" };
 
       for (const window of windows) {
-        const techArrivalMinutes = window.startMinutes;
-        const isFirstOfDay = techArrivalMinutes === workStart && window.queuePosition === 0;
+        const variants = computeWindowVariants(
+          window.startMinutes, window.queuePosition, workStart, diagJobContext,
+        );
 
-        // Build the list of customer-facing windows for this tech arrival.
-        // First-of-day gets TWO options: a tight 30-min window (tech leaves
-        // from home at a known time) AND the standard Rule 1 3-hour window.
-        // All other slots get just Rule 1.
-        const windowVariants: { wStart: number; wEnd: number }[] = [];
-
-        if (isFirstOfDay) {
-          // Tight first-of-day: e.g. 8:00 AM – 8:30 AM
-          windowVariants.push({ wStart: workStart, wEnd: workStart + 30 });
-        }
-        // Rule 1 (Diagnostic): start = tech arrival + 1 hour, 3-hour window
-        const rule1Start = roundTo15(techArrivalMinutes + 60);
-        const rule1End = roundTo15(rule1Start + 180);
-        windowVariants.push({ wStart: rule1Start, wEnd: rule1End });
-
-        for (const { wStart: windowStart, wEnd: windowEnd } of windowVariants) {
+        for (const variant of variants) {
           // Filter by time-of-day preference
-          if (timePreference === "MORNING" && windowEnd > cutoffMinutes) continue;
-          if (timePreference === "AFTERNOON" && windowStart < cutoffMinutes) continue;
+          if (timePreference === "MORNING" && variant.wEnd > cutoffMinutes) continue;
+          if (timePreference === "AFTERNOON" && variant.wStart < cutoffMinutes) continue;
 
           // Build label
           const dateLabel = formatDateLabel(date, now);
-          const label = `${dateLabel} ${formatTime(windowStart)} – ${formatTime(windowEnd)} with ${tech.name}`;
+          const label = `${dateLabel} ${formatTime(variant.wStart)} – ${formatTime(variant.wEnd)} with ${tech.name}`;
 
           slots.push({
             index: slotIndex++,
@@ -399,13 +472,15 @@ export async function generateAvailableSlots(
             techName: tech.name,
             date: date.toISOString().split("T")[0]!,
             queuePosition: window.queuePosition,
-            windowStart: formatTime24(windowStart),
-            windowEnd: formatTime24(windowEnd),
+            windowStart: formatTime24(variant.wStart),
+            windowEnd: formatTime24(variant.wEnd),
             label,
             totalCostMinutes,
             serviceTypeId,
             serviceTypeName,
             timePreference,
+            arrivalMinutes: window.startMinutes,
+            variantType: variant.variantType,
           });
         }
       }
@@ -461,16 +536,43 @@ export async function bookSelectedSlot(
         tech,
         slot.totalCostMinutes,
       );
-      const slotStartMin = parseHHMM(slot.windowStart);
-      // Check if at least one available window still covers this slot's start time.
-      // We match on the tech-arrival time (window.startMinutes) because that's what
-      // drives the customer-facing window calculation.
-      const windowStillOpen = currentWindows.some(
-        (w) => {
-          const customerWindowStart = roundTo15(w.startMinutes + 60);
-          return formatTime24(customerWindowStart) === slot.windowStart;
-        },
-      );
+      const workStart = parseHHMM(tech.workingHoursStart);
+
+      let windowStillOpen = false;
+
+      if (slot.arrivalMinutes != null && slot.variantType != null) {
+        // ── Identity-based validation (new path) ─────────────────────
+        // 1. Find a live window matching the slot's arrival time + queue position
+        const matchingWindow = currentWindows.find(
+          (w) => w.startMinutes === slot.arrivalMinutes && w.queuePosition === slot.queuePosition,
+        );
+        if (matchingWindow) {
+          // 2. Re-derive variants from the same function the generator used
+          //    and confirm the stored variantType still produces the same window
+          const jobContext: JobContext = { kind: "diagnostic" };
+          const variants = computeWindowVariants(
+            matchingWindow.startMinutes, matchingWindow.queuePosition, workStart, jobContext,
+          );
+          windowStillOpen = variants.some(
+            (v) => v.variantType === slot.variantType
+              && formatTime24(v.wStart) === slot.windowStart
+              && formatTime24(v.wEnd) === slot.windowEnd,
+          );
+        }
+      } else {
+        // ── Fallback for in-flight slots generated before this refactor ──
+        // Old slot objects lack arrivalMinutes/variantType. Re-derive using
+        // computeWindowVariants for every live window and check if any variant
+        // produces a matching windowStart. Log a warning so we know this path
+        // is still being hit (should stop after all old conversations clear).
+        console.warn("[booking-validator] FALLBACK: slot missing arrivalMinutes/variantType — using variant scan for windowStart:", slot.windowStart);
+        const jobContext: JobContext = { kind: "diagnostic" };
+        windowStillOpen = currentWindows.some((w) => {
+          const variants = computeWindowVariants(w.startMinutes, w.queuePosition, workStart, jobContext);
+          return variants.some((v) => formatTime24(v.wStart) === slot.windowStart);
+        });
+      }
+
       if (!windowStillOpen) {
         return { booked: false, reason: "slot_no_longer_available" };
       }
@@ -695,42 +797,29 @@ export async function generateFollowUpSlots(
       const windows = computeAvailableWindows(queue, tech, totalCostMinutes);
       if (windows.length === 0) continue;
 
-      const lunchStart = parseHHMM(tech.lunchStart);
       const followUpWorkStart = parseHHMM(tech.workingHoursStart);
+      const followUpJobContext: JobContext = {
+        kind: "follow_up",
+        estimatedLowMinutes,
+        estimatedHighMinutes,
+        windowDurationMinutes,
+        rule,
+      };
 
       for (const window of windows) {
-        const rawStart = window.startMinutes;
-        const isFirstOfDay = rawStart === followUpWorkStart && window.queuePosition === 0;
-
-        // Build window variants — first-of-day gets tight + normal, others just normal
-        const followUpVariants: { wStart: number; wEnd: number }[] = [];
-
-        if (isFirstOfDay) {
-          followUpVariants.push({ wStart: followUpWorkStart, wEnd: followUpWorkStart + 30 });
-        }
-        // Normal rule-based window
-        let windowStartOffset: number;
-        if (rule === "2A") {
-          windowStartOffset = 60;
-        } else if (rule === "2B") {
-          windowStartOffset = estimatedLowMinutes;
-        } else {
-          windowStartOffset = midpointMinutes;
-        }
-        followUpVariants.push({
-          wStart: roundTo15(rawStart + windowStartOffset),
-          wEnd: roundTo15(roundTo15(rawStart + windowStartOffset) + windowDurationMinutes),
-        });
+        const variants = computeWindowVariants(
+          window.startMinutes, window.queuePosition, followUpWorkStart, followUpJobContext,
+        );
 
         const workEnd = parseHHMM(tech.workingHoursEnd) + (tech.overtimeCapMinutes ?? 0);
 
-        for (const { wStart: windowStart, wEnd: windowEnd } of followUpVariants) {
-          if (windowEnd > workEnd) continue;
-          if (timePreference === "MORNING" && windowEnd > cutoffMinutes) continue;
-          if (timePreference === "AFTERNOON" && windowStart < cutoffMinutes) continue;
+        for (const variant of variants) {
+          if (variant.wEnd > workEnd) continue;
+          if (timePreference === "MORNING" && variant.wEnd > cutoffMinutes) continue;
+          if (timePreference === "AFTERNOON" && variant.wStart < cutoffMinutes) continue;
 
           const dateLabel = formatDateLabel(date, now);
-          const label = `${dateLabel} ${formatTime(windowStart)} – ${formatTime(windowEnd)} with ${tech.name}`;
+          const label = `${dateLabel} ${formatTime(variant.wStart)} – ${formatTime(variant.wEnd)} with ${tech.name}`;
 
           slots.push({
             index: slotIndex++,
@@ -738,13 +827,15 @@ export async function generateFollowUpSlots(
             techName: tech.name,
             date: date.toISOString().split("T")[0]!,
             queuePosition: window.queuePosition,
-            windowStart: formatTime24(windowStart),
-            windowEnd: formatTime24(windowEnd),
+            windowStart: formatTime24(variant.wStart),
+            windowEnd: formatTime24(variant.wEnd),
             label,
             totalCostMinutes,
             serviceTypeId,
             serviceTypeName,
             timePreference,
+            arrivalMinutes: window.startMinutes,
+            variantType: variant.variantType,
           });
         }
       }
