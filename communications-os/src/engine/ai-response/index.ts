@@ -663,7 +663,13 @@ async function _generateAIResponseFromDb(
   const selectedSlotIndex = effectiveDecision.selectedSlot ?? null;
   let bookingResponseOverride: string | null = null;
 
-  if (bookingTriggered) {
+  // Pipeline collision guard: reschedule flow sets bookingConfirmed per prompt
+  // instructions, but the reschedule pipeline must handle its own booking.
+  // Without this guard the booking pipeline runs first and consumes the stored
+  // slots, then the reschedule pipeline finds empty state and errors.
+  // TODO: remove once intent dispatch is centralized upstream of all pipelines.
+  const rescheduleConfirmed = effectiveDecision.rescheduleRequested === true;
+  if (bookingTriggered && !rescheduleConfirmed) {
     const bookingStartTime = Date.now();
     try {
       const { generateAvailableSlots, bookSelectedSlot } = await import("~/engine/scheduling/ai-booking-pipeline");
@@ -1194,7 +1200,6 @@ async function _generateAIResponseFromDb(
   let rescheduleResponseOverride: string | null = null;
 
   const rescheduleIntent = (effectiveDecision.detected_intent ?? "").toLowerCase() === "reschedule_appointment";
-  const rescheduleConfirmed = effectiveDecision.rescheduleRequested === true;
   const rescheduleSlotPicked = rescheduleConfirmed && selectedSlotIndex !== null && selectedSlotIndex > 0;
 
   if (rescheduleIntent && !rescheduleConfirmed) {
@@ -1238,6 +1243,11 @@ async function _generateAIResponseFromDb(
             data: { pending_cancel_appointments: appointments as unknown as never },
           });
         }
+      } else {
+        // No phone available — override the AI response so it cannot fabricate
+        // appointment details. Only system-verified data reaches the customer.
+        rescheduleResponseOverride = "I'd be happy to help with that! Can I grab your phone number so I can look up your appointment?";
+        effectiveDecision.proposed_state_change = null;
       }
     } catch (err) {
       console.error("[ai-response] reschedule lookup error:", err instanceof Error ? err.message : String(err));

@@ -231,31 +231,32 @@ CRITICAL — DO NOT:
 const RESCHEDULE_RULE = `-- APPOINTMENT RESCHEDULE FLOW (mandatory) --
 When a customer says they want to reschedule (e.g. "reschedule my appointment", "change my appointment time", "move my appointment", "can I get a different time"):
 
-STEP 1 — IDENTIFY APPOINTMENT:
+STEP 1 — COLLECT PHONE NUMBER:
 - Set "detected_intent": "reschedule_appointment"
-- If you do not already have the customer's phone number, ask for it (same as cancellation lookup)
-- The system will look up their upcoming appointment(s) automatically by phone number
-- If one appointment is found, present it and ask: "I found your appointment on [date] with [tech] for [service]. Would you like to reschedule this one?"
-- If multiple appointments are found, list them and ask which one to reschedule
-- If no appointment is found: "I wasn't able to find an upcoming appointment under that number."
+- You MUST collect the customer's phone number before anything else. Ask: "I'd be happy to help with that! Can I grab your phone number so I can look up your appointment?"
+- Set "collected_phone" when the customer provides it
+- The system will look up their appointment(s) by phone and inject the results into the conversation. Wait for the system to provide appointment details before proceeding.
+- Do NOT describe, name, date, or acknowledge any appointment details yourself. Only the system can confirm what appointments exist.
 - Do NOT set rescheduleRequested yet
 
 STEP 2 — CONFIRM & SHOW REPLACEMENT SLOTS:
-After the customer confirms which appointment to reschedule:
+After the system has presented appointment details and the customer confirms which one to reschedule:
 - Set "rescheduleRequested": true
 - Set "detected_intent": "reschedule_appointment"
-- The system will generate replacement slots (same as booking flow) and present them
+- The system will generate replacement slots and present them
 - Do NOT ask for a reschedule reason
 
 STEP 3 — BOOK REPLACEMENT:
 When the customer picks a replacement slot:
 - Set "selectedSlot" to the slot number they picked
 - Set "rescheduleRequested": true
-- Set "bookingConfirmed": true
+- Do NOT set "bookingConfirmed" — the reschedule pipeline handles booking internally
 - The system will create the new appointment first, then mark the original as rescheduled
 - If the customer says "never mind" or "keep the original" at any point, abort with no changes
 
 CRITICAL — DO NOT:
+- Describe, confirm, or make up appointment details (dates, tech names, services) on your own — only present what the system provides
+- Set bookingConfirmed during a reschedule flow — this flag is for new bookings only
 - Modify the original appointment before the replacement is successfully booked
 - Ask the customer for a reschedule reason
 - Skip confirming which appointment is being changed
