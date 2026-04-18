@@ -1876,6 +1876,96 @@ export function createCancellationDb(prisma: PrismaClient): CancellationDb {
   };
 }
 
+// ── RescheduleDb ───────────────────────────────────────────────────────────
+
+import type { RescheduleDb } from "./reschedule-pipeline";
+
+export function createRescheduleDb(prisma: PrismaClient): RescheduleDb {
+  const self: RescheduleDb = {
+    async getQueueForTechDate(technicianId: string, date: Date): Promise<QueuedJob[]> {
+      return getQueueForTechDate(prisma, technicianId, date);
+    },
+
+    async getTechCandidate(technicianId: string) {
+      const t = await prisma.technicians.findUnique({
+        where: { id: technicianId },
+        include: { skill_tags: true },
+      });
+      if (!t) return null;
+      return {
+        id: t.id,
+        businessId: t.business_id,
+        name: t.name,
+        homeBaseLat: t.home_base_lat,
+        homeBaseLng: t.home_base_lng,
+        skillTags: t.skill_tags.map((s: { service_type_id: string }) => s.service_type_id),
+        workingHoursStart: t.working_hours_start,
+        workingHoursEnd: t.working_hours_end,
+        lunchStart: t.lunch_start,
+        lunchEnd: t.lunch_end,
+        overtimeCapMinutes: t.overtime_cap_minutes,
+        isActive: t.is_active,
+      };
+    },
+
+    async updateSchedulingJob(jobId, data) {
+      await prisma.scheduling_jobs.update({
+        where: { id: jobId },
+        data: {
+          technician_id: data.technicianId,
+          scheduled_date: dateToDateOnly(data.scheduledDate),
+          queue_position: data.queuePosition,
+          window_start: data.windowStart,
+          window_end: data.windowEnd,
+          rebook_count: data.rebookCount,
+          updated_at: new Date(),
+        },
+      });
+    },
+
+    async updateAppointment(appointmentId, data) {
+      await prisma.appointments.update({
+        where: { id: appointmentId },
+        data: {
+          appointment_date: dateToDateOnly(data.appointmentDate),
+          appointment_time: data.appointmentTime,
+          technician_name: data.technicianName,
+          updated_at: new Date(),
+        },
+      });
+    },
+
+    async createSchedulingEvent(event) {
+      await prisma.scheduling_events.create({
+        data: {
+          scheduling_job_id: event.schedulingJobId,
+          event_type: event.eventType,
+          old_value: event.oldValue,
+          new_value: event.newValue,
+          triggered_by: event.triggeredBy as SchedulingTriggeredBy,
+          timestamp: event.timestamp,
+        },
+      });
+    },
+
+    async getCurrentRebookCount(jobId) {
+      const row = await prisma.scheduling_jobs.findUnique({
+        where: { id: jobId },
+        select: { rebook_count: true },
+      });
+      return row?.rebook_count ?? 0;
+    },
+
+    async transaction<T>(fn: (tx: RescheduleDb) => Promise<T>): Promise<T> {
+      return prisma.$transaction(async (txClient) => {
+        return fn(createRescheduleDb(txClient as unknown as PrismaClient));
+      });
+    },
+  };
+
+  return self;
+}
+
 // ── OSRM Production Config ─────────────────────────────────────────────────
 
 /**
