@@ -30,7 +30,7 @@ export interface RescheduleInput {
 }
 
 export interface RescheduleDb {
-  getQueueForTechDate(technicianId: string, date: Date): Promise<QueuedJob[]>;
+  getQueueForTechDate(technicianId: string, date: Date, excludeJobId?: string): Promise<QueuedJob[]>;
   getTechCandidate(technicianId: string): Promise<TechCandidate | null>;
 
   updateSchedulingJob(jobId: string, data: {
@@ -171,19 +171,18 @@ export async function rescheduleInPlace(
   const { originalJobId, originalAppointmentId, slot } = input;
 
   return db.transaction(async (tx) => {
-    // 1. Re-verify slot availability inside the transaction
+    // 1. Re-verify slot availability inside the transaction.
+    // excludeJobId filters the original job at the query level — same
+    // function slot generation uses, so they can never drift.
     const scheduledDate = new Date(slot.date + "T00:00:00");
-    const queue = await tx.getQueueForTechDate(slot.technicianId, scheduledDate);
-
-    // Exclude the original job from the queue (customer competing with themselves)
-    const filteredQueue = queue.filter((j) => j.id !== originalJobId);
+    const queue = await tx.getQueueForTechDate(slot.technicianId, scheduledDate, originalJobId);
 
     const tech = await tx.getTechCandidate(slot.technicianId);
     if (!tech) {
       return { success: false as const, reason: "technician_not_found" };
     }
 
-    if (!verifySlotAvailable(filteredQueue, tech, slot)) {
+    if (!verifySlotAvailable(queue, tech, slot)) {
       return { success: false as const, reason: "slot_no_longer_available" };
     }
 
@@ -216,7 +215,7 @@ export async function rescheduleInPlace(
       eventType: "rescheduled",
       oldValue: null,
       newValue: `${slot.date} ${slot.windowStart}-${slot.windowEnd} with ${slot.techName}`,
-      triggeredBy: "CUSTOMER",
+      triggeredBy: "SYSTEM",
       timestamp: new Date(),
     });
 

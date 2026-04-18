@@ -99,8 +99,10 @@ function makeMockDb(state: Partial<MockDbState> = {}): { db: RescheduleDb; state
   };
 
   const dbImpl: RescheduleDb = {
-    async getQueueForTechDate() {
-      return [...s.queue];
+    async getQueueForTechDate(_techId: string, _date: Date, excludeJobId?: string) {
+      const q = [...s.queue];
+      if (excludeJobId) return q.filter((j) => j.id !== excludeJobId);
+      return q;
     },
     async getTechCandidate() {
       return s.tech;
@@ -209,7 +211,7 @@ describe("R01: Full reschedule success — in-place update", () => {
     const event = state.createdEvents[0]!;
     expect(event.schedulingJobId).toBe(ORIGINAL_JOB_ID);
     expect(event.eventType).toBe("rescheduled");
-    expect(event.triggeredBy).toBe("CUSTOMER");
+    expect(event.triggeredBy).toBe("SYSTEM");
     expect(event.newValue).toContain("2026-04-21");
     expect(event.newValue).toContain("Jake Rodriguez");
   });
@@ -332,5 +334,179 @@ describe("R04: Replacement slot no longer available at commit time", () => {
 
     // Should succeed because the original job is filtered out
     expect(result.success).toBe(true);
+  });
+});
+
+// ── R05: Queue exclusion consistency between generation and re-verification ──
+
+describe("R05: Original job excluded consistently in generation and re-verification", () => {
+  it("reschedule succeeds when original is at queue position 0 and slot was computed without it", async () => {
+    // Simulates the live bug: original job sits at position 0 in the queue.
+    // Slot generation excluded it → produced a slot with arrivalMinutes=480 (workStart).
+    // Re-verification must also exclude it → same arrivalMinutes available.
+    const queueWithOriginalFirst: QueuedJob[] = [
+      {
+        id: ORIGINAL_JOB_ID,
+        queuePosition: 0,
+        status: "NOT_STARTED" as const,
+        timePreference: "SOONEST" as const,
+        addressLat: 36.16,
+        addressLng: -86.78,
+        manualPosition: false,
+        manualPositionSetDate: null,
+        estimatedDurationMinutes: 75,
+        driveTimeMinutes: 15,
+        queueVersion: 0,
+      },
+    ];
+
+    // Slot was generated with original excluded → arrivalMinutes=480 (8:00 AM), queuePosition=0
+    const slotComputedWithoutOriginal = makeSlot({
+      arrivalMinutes: 480,
+      queuePosition: 0,
+      windowStart: "09:00",
+      windowEnd: "12:00",
+      variantType: "rule_1",
+    });
+
+    const { db, state } = makeMockDb({ queue: queueWithOriginalFirst });
+    const result = await rescheduleInPlace(
+      makeInput({ slot: slotComputedWithoutOriginal }),
+      db,
+    );
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.jobId).toBe(ORIGINAL_JOB_ID);
+    expect(state.updatedJobs).toHaveLength(1);
+  });
+
+  it("reschedule succeeds when original is mid-queue and other jobs surround it", async () => {
+    const queueWithOriginalMiddle: QueuedJob[] = [
+      {
+        id: "other-job-before",
+        queuePosition: 0,
+        status: "NOT_STARTED" as const,
+        timePreference: "SOONEST" as const,
+        addressLat: 36.16,
+        addressLng: -86.78,
+        manualPosition: false,
+        manualPositionSetDate: null,
+        estimatedDurationMinutes: 75,
+        driveTimeMinutes: 15,
+        queueVersion: 0,
+      },
+      {
+        id: ORIGINAL_JOB_ID,
+        queuePosition: 1,
+        status: "NOT_STARTED" as const,
+        timePreference: "SOONEST" as const,
+        addressLat: 36.16,
+        addressLng: -86.78,
+        manualPosition: false,
+        manualPositionSetDate: null,
+        estimatedDurationMinutes: 75,
+        driveTimeMinutes: 15,
+        queueVersion: 0,
+      },
+    ];
+
+    // After excluding original, only "other-job-before" remains at pos 0.
+    // First job: serviceDuration=75-15=60, occupied 480-540. searchStart=540.
+    // Gap after first job: gapStart=540, first window at 540, queuePosition=1.
+    // Rule 1 variant: roundTo15(540+60)=600 → windowStart=10:00, windowEnd=13:00.
+    const slotAfterFirstJob = makeSlot({
+      arrivalMinutes: 540,
+      queuePosition: 1,
+      windowStart: "10:00",
+      windowEnd: "13:00",
+      variantType: "rule_1",
+    });
+
+    const { db, state } = makeMockDb({ queue: queueWithOriginalMiddle });
+    const result = await rescheduleInPlace(
+      makeInput({ slot: slotAfterFirstJob }),
+      db,
+    );
+
+    expect(result.success).toBe(true);
+    expect(state.updatedJobs).toHaveLength(1);
+  });
+});
+
+// ── R06: Queue function without excludeJobId returns full queue ──
+
+describe("R06: getQueueForTechDate without excludeJobId returns full unfiltered queue", () => {
+  it("returns all jobs when excludeJobId is undefined", async () => {
+    const fullQueue: QueuedJob[] = [
+      {
+        id: "job-a",
+        queuePosition: 0,
+        status: "NOT_STARTED" as const,
+        timePreference: "SOONEST" as const,
+        addressLat: 36.16,
+        addressLng: -86.78,
+        manualPosition: false,
+        manualPositionSetDate: null,
+        estimatedDurationMinutes: 75,
+        driveTimeMinutes: 15,
+        queueVersion: 0,
+      },
+      {
+        id: "job-b",
+        queuePosition: 1,
+        status: "NOT_STARTED" as const,
+        timePreference: "SOONEST" as const,
+        addressLat: 36.16,
+        addressLng: -86.78,
+        manualPosition: false,
+        manualPositionSetDate: null,
+        estimatedDurationMinutes: 75,
+        driveTimeMinutes: 15,
+        queueVersion: 0,
+      },
+    ];
+
+    const { db } = makeMockDb({ queue: fullQueue });
+    // Call getQueueForTechDate without excludeJobId — simulates new booking path
+    const result = await db.getQueueForTechDate("any-tech", new Date());
+    expect(result).toHaveLength(2);
+    expect(result.map((j) => j.id)).toEqual(["job-a", "job-b"]);
+  });
+
+  it("filters only the specified job when excludeJobId is provided", async () => {
+    const fullQueue: QueuedJob[] = [
+      {
+        id: "job-a",
+        queuePosition: 0,
+        status: "NOT_STARTED" as const,
+        timePreference: "SOONEST" as const,
+        addressLat: 36.16,
+        addressLng: -86.78,
+        manualPosition: false,
+        manualPositionSetDate: null,
+        estimatedDurationMinutes: 75,
+        driveTimeMinutes: 15,
+        queueVersion: 0,
+      },
+      {
+        id: "job-b",
+        queuePosition: 1,
+        status: "NOT_STARTED" as const,
+        timePreference: "SOONEST" as const,
+        addressLat: 36.16,
+        addressLng: -86.78,
+        manualPosition: false,
+        manualPositionSetDate: null,
+        estimatedDurationMinutes: 75,
+        driveTimeMinutes: 15,
+        queueVersion: 0,
+      },
+    ];
+
+    const { db } = makeMockDb({ queue: fullQueue });
+    const result = await db.getQueueForTechDate("any-tech", new Date(), "job-a");
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("job-b");
   });
 });

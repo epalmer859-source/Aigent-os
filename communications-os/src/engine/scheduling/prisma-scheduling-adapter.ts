@@ -172,12 +172,18 @@ export function createSchedulingStateMachineDb(prisma: PrismaClient): Scheduling
 
 // ── Shared queue reader ─────────────────────────────────────────────────────
 
-async function getQueueForTechDate(prisma: PrismaClient, technicianId: string, date: Date): Promise<QueuedJob[]> {
+async function getQueueForTechDate(
+  prisma: PrismaClient,
+  technicianId: string,
+  date: Date,
+  excludeJobId?: string,
+): Promise<QueuedJob[]> {
   const rows = await prisma.scheduling_jobs.findMany({
     where: {
       technician_id: technicianId,
       scheduled_date: dateToDateOnly(date),
       status: { notIn: ["CANCELED"] },
+      ...(excludeJobId ? { id: { not: excludeJobId } } : {}),
     },
     orderBy: { queue_position: "asc" },
   });
@@ -1882,8 +1888,8 @@ import type { RescheduleDb } from "./reschedule-pipeline";
 
 export function createRescheduleDb(prisma: PrismaClient): RescheduleDb {
   const self: RescheduleDb = {
-    async getQueueForTechDate(technicianId: string, date: Date): Promise<QueuedJob[]> {
-      return getQueueForTechDate(prisma, technicianId, date);
+    async getQueueForTechDate(technicianId: string, date: Date, excludeJobId?: string): Promise<QueuedJob[]> {
+      return getQueueForTechDate(prisma, technicianId, date, excludeJobId);
     },
 
     async getTechCandidate(technicianId: string) {

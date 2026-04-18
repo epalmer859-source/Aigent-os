@@ -1257,18 +1257,19 @@ async function _generateAIResponseFromDb(
     try {
       const { generateAvailableSlots } = await import("~/engine/scheduling/ai-booking-pipeline");
 
-      // Load the original appointment to check for same-slot selection later
+      // Load the original appointment to exclude from queue + same-slot check
       const convReschedule = await db.conversations.findUnique({
         where: { id: conversationId },
       }) as unknown as { pending_cancel_appointments?: unknown } | null;
       const storedAppts = Array.isArray(convReschedule?.pending_cancel_appointments)
-        ? convReschedule.pending_cancel_appointments as Array<{ appointmentId: string }>
+        ? convReschedule.pending_cancel_appointments as Array<{ appointmentId: string; schedulingJobId: string | null }>
         : [];
 
       if (storedAppts.length === 0) {
         rescheduleResponseOverride = "I couldn't find the appointment you want to reschedule. Could you start again by telling me you'd like to reschedule?";
         effectiveDecision.proposed_state_change = null;
       } else {
+        const originalJobIdForExclusion = storedAppts[0]?.schedulingJobId ?? undefined;
         const serviceDescription = effectiveDecision.detected_intent ?? "";
         const availabilityPref = effectiveDecision.availability_preference ?? null;
         const availabilityCutoff = effectiveDecision.availability_cutoff_time ?? null;
@@ -1299,7 +1300,14 @@ async function _generateAIResponseFromDb(
           },
           async getQueueForTechDate(technicianId: string, date: Date) {
             const { createBookingOrchestratorDb: createBODb } = await import("~/engine/scheduling/prisma-scheduling-adapter");
-            return createBODb(db).getQueueForTechDate(technicianId, date);
+            const boDb = createBODb(db);
+            // Exclude original job so customer doesn't compete with themselves.
+            // Same excludeJobId used by Phase 3 re-verification — single source of truth.
+            if (originalJobIdForExclusion) {
+              const fullQueue = await boDb.getQueueForTechDate(technicianId, date);
+              return fullQueue.filter((j) => j.id !== originalJobIdForExclusion);
+            }
+            return boDb.getQueueForTechDate(technicianId, date);
           },
         };
 
