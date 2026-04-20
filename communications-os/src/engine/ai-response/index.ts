@@ -1565,28 +1565,71 @@ async function _generateAIResponseFromDb(
       });
     }
 
-    // Write collected phone to customer_contacts so techs see a real number
+    // Write collected phone to customer_contacts so techs see a real number.
+    // Canonicalize first, then check for existing customer with same phone
+    // to prevent fragmentation (two customer records for the same person).
     if (collectedPhone) {
-      await tx.customer_contacts.upsert({
-        where: {
-          business_id_contact_type_contact_value: {
-            business_id: businessId,
-            contact_type: "phone",
-            contact_value: collectedPhone,
+      const { canonicalizePhone } = await import("~/engine/customer-resolver/index");
+      const canonicalPhone = canonicalizePhone(collectedPhone);
+      if (canonicalPhone) {
+        // Check if another customer already owns this phone
+        const existingPhoneContact = await tx.customer_contacts.findUnique({
+          where: {
+            business_id_contact_type_contact_value: {
+              business_id: businessId,
+              contact_type: "phone",
+              contact_value: canonicalPhone,
+            },
           },
-        },
-        update: {
-          customer_id: customerId,
-          is_primary: true,
-        },
-        create: {
-          customer_id: customerId,
-          business_id: businessId,
-          contact_type: "phone",
-          contact_value: collectedPhone,
-          is_primary: true,
-        },
-      });
+          select: { customer_id: true },
+        });
+
+        if (existingPhoneContact && existingPhoneContact.customer_id !== customerId) {
+          // Phone belongs to a different customer — merge this conversation's
+          // customer into the existing one to prevent fragmentation.
+          const keepCustomerId = existingPhoneContact.customer_id;
+          console.log(`[customer-merge] merging customer_id ${customerId} into ${keepCustomerId} due to phone match on ${canonicalPhone}`);
+
+          // Transfer all FKs from the duplicate to the keeper
+          const mergeUpdates = await Promise.all([
+            tx.conversations.updateMany({ where: { customer_id: customerId }, data: { customer_id: keepCustomerId } }),
+            tx.appointments.updateMany({ where: { customer_id: customerId }, data: { customer_id: keepCustomerId } }),
+            tx.scheduling_jobs.updateMany({ where: { customer_id: customerId }, data: { customer_id: keepCustomerId } }),
+            tx.customer_contacts.updateMany({ where: { customer_id: customerId }, data: { customer_id: keepCustomerId } }),
+            tx.escalations.updateMany({ where: { customer_id: customerId }, data: { customer_id: keepCustomerId } }),
+            tx.recurring_services.updateMany({ where: { customer_id: customerId }, data: { customer_id: keepCustomerId } }),
+            tx.follow_up_requests.updateMany({ where: { customer_id: customerId }, data: { customer_id: keepCustomerId } }),
+            tx.pull_forward_offers.updateMany({ where: { customer_id: customerId }, data: { customer_id: keepCustomerId } }),
+          ]);
+          const totalTransferred = mergeUpdates.reduce((sum, r) => sum + r.count, 0);
+          console.log(`[customer-merge] transferred ${totalTransferred} FK records, deleting duplicate ${customerId}`);
+
+          // Delete the now-orphaned duplicate customer
+          await tx.customers.delete({ where: { id: customerId } });
+        } else {
+          // No conflict — upsert the phone contact for this customer
+          await tx.customer_contacts.upsert({
+            where: {
+              business_id_contact_type_contact_value: {
+                business_id: businessId,
+                contact_type: "phone",
+                contact_value: canonicalPhone,
+              },
+            },
+            update: {
+              customer_id: customerId,
+              is_primary: true,
+            },
+            create: {
+              customer_id: customerId,
+              business_id: businessId,
+              contact_type: "phone",
+              contact_value: canonicalPhone,
+              is_primary: true,
+            },
+          });
+        }
+      }
     }
 
     return { msgId: msg.id, queueId: q.id };

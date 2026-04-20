@@ -306,19 +306,29 @@ function _toConversationResolved(
   };
 }
 
+// ── 0. canonicalizePhone ──────────────────────────────────────
+// Pure function. Single source of truth for phone canonicalization.
+// Every phone write AND read for lookup must route through this.
+//
+// Returns E.164-ish string (+1XXXXXXXXXX for US) or null if invalid.
+
+export function canonicalizePhone(raw: string): string | null {
+  const containsLetters = /[a-zA-Z]/.test(raw);
+  if (containsLetters) return null;
+
+  const hasPlus = raw.trimStart().startsWith("+");
+  const digits = raw.replace(/\D/g, "");
+
+  if (digits.length < 7) return null;
+
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (hasPlus) return `+${digits}`;
+  return `+${digits}`;
+}
+
 // ── 1. normalizeContact ───────────────────────────────────────
-// Pure function. No DB access.
-//
-// Phone normalization rules:
-//   - Detect whether input starts with + (international signal).
-//   - Strip all non-digit characters.
-//   - Reject if input contains letters or has < 7 digits.
-//   - 10 digits → prepend +1 (US assumed).
-//   - 11 digits starting with 1 → prepend + (US with country code).
-//   - Everything else with + prefix → keep as international E.164.
-//   - Everything else → prepend + (best-effort E.164).
-//
-// Email normalization: trim + toLowerCase; requires @ for valid.
+// Pure function. No DB access. Delegates phone logic to canonicalizePhone.
 
 export function normalizeContact(
   contactType: string,
@@ -327,26 +337,11 @@ export function normalizeContact(
   const original = contactValue;
 
   if (contactType === "phone") {
-    const hasPlus = contactValue.trimStart().startsWith("+");
-    const digits = contactValue.replace(/\D/g, "");
-    const containsLetters = /[a-zA-Z]/.test(contactValue);
-
-    if (containsLetters || digits.length < 7) {
+    const canonical = canonicalizePhone(contactValue);
+    if (!canonical) {
       return { contactType, contactValue: original, isValid: false, original };
     }
-
-    let normalized: string;
-    if (digits.length === 10) {
-      normalized = `+1${digits}`;
-    } else if (digits.length === 11 && digits.startsWith("1")) {
-      normalized = `+${digits}`;
-    } else if (hasPlus) {
-      normalized = `+${digits}`;
-    } else {
-      normalized = `+${digits}`;
-    }
-
-    return { contactType, contactValue: normalized, isValid: true, original };
+    return { contactType, contactValue: canonical, isValid: true, original };
   }
 
   if (contactType === "email") {
@@ -581,26 +576,31 @@ async function _resolveCustomerFromDb(
           do_not_contact: false,
         },
       });
-      await tx.customer_contacts.upsert({
-        where: {
-          business_id_contact_type_contact_value: {
+      // Only write a customer_contacts row for reachable contact types (phone, email).
+      // web_chat session UUIDs are not reachable — session tracking lives in
+      // web_chat_sessions and conversations.contact_handle, not here.
+      if (input.contactType !== "web_chat") {
+        await tx.customer_contacts.upsert({
+          where: {
+            business_id_contact_type_contact_value: {
+              business_id: input.businessId,
+              contact_type: input.contactType,
+              contact_value: normalizedValue,
+            },
+          },
+          update: {
+            customer_id: cust.id,
+            is_primary: true,
+          },
+          create: {
+            customer_id: cust.id,
             business_id: input.businessId,
             contact_type: input.contactType,
             contact_value: normalizedValue,
+            is_primary: true,
           },
-        },
-        update: {
-          customer_id: cust.id,
-          is_primary: true,
-        },
-        create: {
-          customer_id: cust.id,
-          business_id: input.businessId,
-          contact_type: input.contactType,
-          contact_value: normalizedValue,
-          is_primary: true,
-        },
-      });
+        });
+      }
       const conv = await tx.conversations.create({
         data: {
           business_id: input.businessId,

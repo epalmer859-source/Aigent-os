@@ -32,6 +32,7 @@ import type { ResolveCustomerInput } from "../contract";
 import {
   resolveCustomer,
   normalizeContact,
+  canonicalizePhone,
   _resetStoreForTest,
   _closeConversationForTest,
   _setDoNotContactForTest,
@@ -383,5 +384,74 @@ describe("F — Edge cases", () => {
     );
     expect(result.customer.isNew).toBe(true);
     expect(result.conversation!.contactHandle).toBe("customer@example.com");
+  });
+});
+
+// ── G — canonicalizePhone ─────────────────────────────────────
+
+describe("G — canonicalizePhone", () => {
+  it("G01: 10-digit US number → +1 prefix", () => {
+    expect(canonicalizePhone("4758679800")).toBe("+14758679800");
+  });
+
+  it("G02: formatted US number → stripped and +1 prefix", () => {
+    expect(canonicalizePhone("(475) 867-9800")).toBe("+14758679800");
+  });
+
+  it("G03: 11-digit starting with 1 → +1 prefix", () => {
+    expect(canonicalizePhone("14758679800")).toBe("+14758679800");
+  });
+
+  it("G04: already E.164 → unchanged", () => {
+    expect(canonicalizePhone("+14758679800")).toBe("+14758679800");
+  });
+
+  it("G05: too short → null", () => {
+    expect(canonicalizePhone("123456")).toBeNull();
+  });
+
+  it("G06: contains letters → null", () => {
+    expect(canonicalizePhone("475-abc-9800")).toBeNull();
+  });
+
+  it("G07: empty string → null", () => {
+    expect(canonicalizePhone("")).toBeNull();
+  });
+
+  it("G08: different formatting produces same canonical output", () => {
+    const variants = ["4758679800", "(475) 867-9800", "475-867-9800", "+14758679800", "1-475-867-9800"];
+    const results = variants.map(canonicalizePhone);
+    expect(new Set(results).size).toBe(1);
+    expect(results[0]).toBe("+14758679800");
+  });
+});
+
+// ── H — Customer dedup on phone match ─────────────────────────
+
+describe("H — Customer dedup via phone", () => {
+  beforeEach(() => _resetStoreForTest());
+
+  it("H01: second conversation with same phone reuses existing customer_id (test path)", async () => {
+    const biz = makeBizId();
+
+    // First customer arrives via phone
+    const first = await resolveCustomer(makeInput({
+      businessId: biz,
+      contactType: "phone",
+      contactValue: "4758679800",
+      channel: "sms",
+    }));
+    expect(first.customer.isNew).toBe(true);
+    const originalCustomerId = first.customer.id;
+
+    // Same phone, second conversation
+    const second = await resolveCustomer(makeInput({
+      businessId: biz,
+      contactType: "phone",
+      contactValue: "(475) 867-9800",
+      channel: "sms",
+    }));
+    expect(second.customer.isNew).toBe(false);
+    expect(second.customer.id).toBe(originalCustomerId);
   });
 });
