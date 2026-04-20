@@ -228,7 +228,7 @@ describe("H: Conversation history", () => {
     seedOneMessage("m2", "outbound", "AI reply", new Date("2024-06-15T10:01:00Z"));
     const result = await assemblePrompt(makeContext());
     const user = result.conversationHistory.find((m: ConversationMessage) => m.content === "Customer question");
-    const asst = result.conversationHistory.find((m: ConversationMessage) => m.content === "AI reply");
+    const asst = result.conversationHistory.find((m: ConversationMessage) => m.content.includes("AI reply"));
     expect(user?.role).toBe("user");
     expect(asst?.role).toBe("assistant");
   });
@@ -358,5 +358,98 @@ describe("S: State-specific instructions", () => {
     const result = await assemblePrompt(makeContext());
     expect(result.systemPrompt).toContain("job_completed");
     expect(result.systemPrompt.toLowerCase()).toMatch(/close.?out|review|complete|satisfaction/);
+  });
+});
+
+// ── J: JSON format enforcement in conversation history ──────────
+
+describe("J: JSON format enforcement in conversation history", () => {
+  beforeEach(() => {
+    resetAll();
+    seedDefaultBusiness();
+    seedDefaultConversation();
+    seedDefaultCustomer();
+  });
+
+  it("J01: assistant messages in history are valid JSON strings", async () => {
+    const base = new Date("2024-06-15T10:00:00Z").getTime();
+    seedOneMessage("m1", "inbound", "Hey there", new Date(base));
+    seedOneMessage("m2", "outbound", "Hi! How can I help?", new Date(base + 60000));
+    seedOneMessage("m3", "inbound", "I need a plumber", new Date(base + 120000));
+    seedOneMessage("m4", "outbound", "Sure, can I get your name?", new Date(base + 180000));
+    seedOneMessage("m5", "inbound", "John Smith", new Date(base + 240000));
+    seedOneMessage("m6", "outbound", "Thanks John!", new Date(base + 300000));
+
+    const result = await assemblePrompt(makeContext());
+    const assistantMsgs = result.conversationHistory.filter((m) => m.role === "assistant");
+
+    expect(assistantMsgs.length).toBe(3);
+    for (const msg of assistantMsgs) {
+      const parsed = JSON.parse(msg.content);
+      expect(parsed).toHaveProperty("response_text");
+      expect(typeof parsed.response_text).toBe("string");
+    }
+  });
+
+  it("J02: user messages in history remain plain text (not wrapped)", async () => {
+    const base = new Date("2024-06-15T10:00:00Z").getTime();
+    seedOneMessage("m1", "inbound", "Hey there", new Date(base));
+    seedOneMessage("m2", "outbound", "Hi!", new Date(base + 60000));
+
+    const result = await assemblePrompt(makeContext());
+    const userMsgs = result.conversationHistory.filter((m) => m.role === "user");
+
+    expect(userMsgs.length).toBe(1);
+    expect(userMsgs[0]!.content).toBe("Hey there");
+    expect(() => JSON.parse(userMsgs[0]!.content)).toThrow();
+  });
+
+  it("J04: 5-turn conversation produces all valid JSON assistant messages", async () => {
+    const base = new Date("2024-06-15T10:00:00Z").getTime();
+    const turns = [
+      { dir: "inbound", text: "yo" },
+      { dir: "outbound", text: "Hey! What can I help with?" },
+      { dir: "inbound", text: "Kenzie Thomas, 555-1234" },
+      { dir: "outbound", text: "Got it Kenzie! What service do you need?" },
+      { dir: "inbound", text: "my thermostat is messed up" },
+      { dir: "outbound", text: "I can help with that. What's your address?" },
+      { dir: "inbound", text: "123 Main St" },
+      { dir: "outbound", text: "Let me check availability..." },
+      { dir: "inbound", text: "option 3" },
+      { dir: "outbound", text: "Great! Jake will be there tomorrow." },
+    ];
+    turns.forEach((t, i) => {
+      seedOneMessage(`m${i}`, t.dir as "inbound" | "outbound", t.text, new Date(base + i * 60000));
+    });
+
+    const result = await assemblePrompt(makeContext());
+    const assistantMsgs = result.conversationHistory.filter((m) => m.role === "assistant");
+
+    expect(assistantMsgs.length).toBe(5);
+    for (const msg of assistantMsgs) {
+      expect(() => JSON.parse(msg.content)).not.toThrow();
+      const parsed = JSON.parse(msg.content);
+      expect(parsed.response_text).toBeTruthy();
+    }
+  });
+
+  it("J05: fallback prose response in history is wrapped — model sees JSON not prose", async () => {
+    const base = new Date("2024-06-15T10:00:00Z").getTime();
+    seedOneMessage("m1", "inbound", "Help me", new Date(base));
+    seedOneMessage("m2", "outbound", "Thanks for your message! Our team has been notified and will get back to you shortly.", new Date(base + 60000));
+    seedOneMessage("m3", "inbound", "hello?", new Date(base + 120000));
+    seedOneMessage("m4", "outbound", "I'm sorry for the trouble — let me connect you with our team directly.", new Date(base + 180000));
+    seedOneMessage("m5", "inbound", "my AC is broken", new Date(base + 240000));
+
+    const result = await assemblePrompt(makeContext());
+    const assistantMsgs = result.conversationHistory.filter((m) => m.role === "assistant");
+
+    expect(assistantMsgs.length).toBe(2);
+    for (const msg of assistantMsgs) {
+      const parsed = JSON.parse(msg.content);
+      expect(parsed).toHaveProperty("response_text");
+      expect(typeof parsed.response_text).toBe("string");
+      expect(parsed.response_text.length).toBeGreaterThan(0);
+    }
   });
 });
