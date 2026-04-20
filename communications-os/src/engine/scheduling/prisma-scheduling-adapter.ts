@@ -1758,8 +1758,25 @@ export function createWindowRecalculatorDb(prisma: PrismaClient): WindowRecalcul
 export function createCancellationDb(prisma: PrismaClient): CancellationDb {
   return {
     async findCustomerIdsByPhone(businessId: string, phone: string): Promise<string[]> {
-      // Fuzzy match: strip non-digits from stored values and compare
-      // Use raw SQL for the digit-only comparison
+      // Canonicalize the lookup phone, then try exact match first.
+      // Falls back to fuzzy digit match for pre-canonicalization rows.
+      const { canonicalizePhone } = await import("~/engine/customer-resolver/index");
+      const canonical = canonicalizePhone(phone);
+
+      if (canonical) {
+        const exact = await prisma.customer_contacts.findMany({
+          where: {
+            business_id: businessId,
+            contact_type: "phone",
+            contact_value: canonical,
+          },
+          select: { customer_id: true },
+          distinct: ["customer_id"],
+        });
+        if (exact.length > 0) return exact.map((r) => r.customer_id);
+      }
+
+      // Fallback: fuzzy digit match for legacy non-canonical rows
       const rows = await prisma.$queryRaw<{ customer_id: string }[]>`
         SELECT DISTINCT customer_id
         FROM customer_contacts
