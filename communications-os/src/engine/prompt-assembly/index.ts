@@ -508,7 +508,9 @@ export async function assemblePrompt(context: PromptContext): Promise<AssembledP
 
   const conversationHistory: ConversationMessage[] = historyMsgs.map((m) => ({
     role: m.direction === "inbound" ? "user" : "assistant",
-    content: m.content,
+    content: m.direction === "outbound"
+      ? JSON.stringify({ response_text: m.content })
+      : m.content,
     timestamp: m.createdAt,
   }));
 
@@ -676,7 +678,13 @@ async function _assemblePromptFromDb(context: PromptContext): Promise<AssembledP
 
   const conversationHistory: ConversationMessage[] = dbMessages.map((m) => ({
     role: m.direction === "inbound" ? "user" : "assistant",
-    content: m.content ?? "",
+    // Wrap assistant messages as JSON envelopes so the model sees prior
+    // "responses" in the same JSON format the system prompt requires.
+    // Prevents history contamination where plain-prose assistant turns
+    // teach the model to respond in prose instead of JSON.
+    content: m.direction === "outbound"
+      ? JSON.stringify({ response_text: m.content ?? "" })
+      : (m.content ?? ""),
     timestamp: m.created_at,
   }));
 
